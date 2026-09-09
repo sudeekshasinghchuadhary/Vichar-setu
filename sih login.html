@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Login & Create Account</title>
+
+    <link rel="stylesheet" href="css sih.css">
+</head>
+
+<body>
+
+    <!-- LOGIN PAGE -->
+    <div class="container" id="loginPage">
+
+        <h2>Login</h2>
+
+        <form id="loginForm">
+
+            <div class="input-group">
+                <label>Email</label>
+                <input
+                    type="email"
+                    id="loginEmail"
+                    placeholder="Enter your email"
+                    required
+                >
+            </div>
+
+            <div class="input-group">
+                <label>Password</label>
+                <input
+                    type="password"
+                    id="loginPassword"
+                    placeholder="Enter your password"
+                    required
+                >
+            </div>
+
+            <button type="submit">Login</button>
+
+        </form>
+
+        <p id="loginMessage"></p>
+
+        <div class="account-option">
+            <p>Don't have an account?</p>
+
+            <button class="create-btn" id="showCreateAccount">
+                Create Account
+            </button>
+        </div>
+
+    </div>
+
+
+    <!-- CREATE ACCOUNT PAGE -->
+    <div class="container hidden" id="createAccountPage">
+
+        <h2>Create Account</h2>
+
+        <form id="createAccountForm">
+
+            <div class="input-group">
+                <label>Full Name</label>
+                <input
+                    type="text"
+                    id="name"
+                    placeholder="Enter your name"
+                    required
+                >
+            </div>
+
+            <div class="input-group">
+                <label>Email</label>
+                <input
+                    type="email"
+                    id="createEmail"
+                    placeholder="Enter your email"
+                    required
+                >
+            </div>
+
+            <div class="input-group">
+                <label>Password</label>
+                <input
+                    type="password"
+                    id="createPassword"
+                    placeholder="Create a password"
+                    required
+                >
+            </div>
+
+            <div class="input-group">
+                <label>Confirm Password</label>
+                <input
+                    type="password"
+                    id="confirmPassword"
+                    placeholder="Confirm your password"
+                    required
+                >
+            </div>
+
+            <button type="submit">Create Account</button>
+
+        </form>
+
+        <p id="createMessage"></p>
+
+        <div class="account-option">
+
+            <p>Already have an account?</p>
+
+            <button class="create-btn" id="showLogin">
+                Back to Login
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <script src="js sih.js"></script>
+
+</body>
+
+</html>
+
