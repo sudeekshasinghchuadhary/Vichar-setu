@@ -198,7 +198,11 @@ def test_needs_information_eligibility() -> None:
     result = orch.run(TEXT, [scheme])
     assert result.schemes[0].eligibility.status == "needs_information"
     assert result.ranked_matches == []
-    assert result.schemes[0].near_miss is None
+    near_miss = result.schemes[0].near_miss
+    assert near_miss is not None
+    assert near_miss.is_near_miss is False
+    assert near_miss.failed_criteria == []
+    assert near_miss.total_criteria == 1
 
 
 def test_near_miss_scheme_end_to_end() -> None:

@@ -2,7 +2,8 @@
 
 Flow: raw text -> ProfileProcessor + NeedAnalyzer (parallel branches)
 -> EligibilityEngine (every scheme) -> MatchingEngine (+ optional
-SemanticMatcher hybrid) + NearMissEngine (not_eligible only)
+SemanticMatcher hybrid) + NearMissEngine (not_eligible + needs_information
+breakdowns; is_near_miss only for not_eligible)
 -> SupportPlanner (needs + schemes + eligibility)
 -> FinancialIntelligence (per-need eligible supports)
 -> PathwayEngine (eligible schemes with pathway data)
@@ -166,7 +167,9 @@ class IntelligenceOrchestrator:
         near_by_id = {}
         for scheme in schemes:
             result = by_id.get(scheme.id)
-            if result is not None and result.status == "not_eligible":
+            if result is not None and result.status in ("not_eligible", "needs_information"):
+                # Breakdown for both states; is_near_miss stays True only for
+                # not_eligible per NearMissEngine rules. Ranking untouched.
                 near_by_id[scheme.id] = self.near_miss_engine.analyze(profile, scheme, result)
         if near_by_id:
             stages.append("near_miss")

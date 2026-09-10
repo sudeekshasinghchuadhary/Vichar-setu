@@ -278,7 +278,30 @@ def test_needs_information_schemes() -> None:
     result = orch.run("tailoring business", [_open_scheme()])
     assert result.schemes[0].eligibility.status == "needs_information"
     assert result.ranked_matches == []
-    assert result.schemes[0].near_miss is None
+    near_miss = result.schemes[0].near_miss
+    assert near_miss is not None
+    assert near_miss.is_near_miss is False
+    assert near_miss.failed_criteria == []
+    assert "occupation" not in near_miss.satisfied_criteria
+    assert near_miss.total_criteria == 6
+
+
+def test_needs_information_breakdown_counts() -> None:
+    """Unresolved schemes expose satisfied/missing structure without verdict change."""
+    from intelligence_engine.profile_processor import ProfileProcessor as PP
+
+    class SparseLLM(FakeLLM):
+        def extract_profile_data(self, user_text: str) -> dict[str, Any]:
+            """Profile missing occupation."""
+            data = super().extract_profile_data(user_text)
+            data.pop("occupation")
+            return data
+
+    orch = _orchestrator(profile_processor=PP(SparseLLM()))
+    result = orch.run("tailoring business", [_open_scheme()])
+    near_miss = result.schemes[0].near_miss
+    assert len(near_miss.satisfied_criteria) == 5
+    assert any("occupation" in reason.lower() for reason in near_miss.reasons)
 
 
 def test_immutability() -> None:
