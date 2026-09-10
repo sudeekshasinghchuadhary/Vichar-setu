@@ -1,0 +1,10 @@
+# Dependencies for the Core Intelligence Engine (Ananya) only.
+# Kept separate from backend/frontend requirements.
+pydantic>=2.0
+pytest>=8.0
+# LLM SDK to be decided with the team (e.g. openai / google-generativeai).
+# Added later once the provider is agreed.
+# Optional real embeddings (Step 7): only needed for LocalEmbeddingProvider.
+# Unit tests use the fake provider and do NOT need this. Implies several
+# hundred MB (CPU torch) plus a roughly half-GB one-time model download.
+# sentence-transformers>=3.0
