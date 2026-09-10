@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>What-If Simulator — Saksham AI</title>
+
+    <link rel="stylesheet" href="CSS/what-if.css">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+
+    <!-- NAVBAR -->
+
+    <header class="navbar">
+
+        <a href="index.html" class="brand">
+            <span>✳</span>
+            Saksham AI
+        </a>
+
+        <a href="scheme_details.html?id=1" class="back-link">
+            ← Back to scheme
+        </a>
+
+    </header>
+
+
+    <main class="whatif-page">
+
+        <!-- INTRO -->
+
+        <section class="whatif-intro">
+
+            <span class="eyebrow">
+                WHAT-IF SIMULATOR
+            </span>
+
+            <h1>
+                What if<br>
+                things changed?
+            </h1>
+
+            <p>
+                Explore how small changes in your profile
+                could affect your scheme match.
+            </p>
+
+        </section>
+
+
+        <!-- SIMULATOR -->
+
+        <section class="simulator">
+
+            <div class="simulator-left">
+
+                <span class="section-label">
+                    TRY A DIFFERENT SCENARIO
+                </span>
+
+                <h2>
+                    Change one thing.
+                </h2>
+
+                <p class="simulator-description">
+                    This is a simulation based on your current
+                    profile. Your actual eligibility is checked
+                    when your profile is evaluated.
+                </p>
+
+
+                <!-- FIELD -->
+
+                <div class="scenario-field">
+
+                    <label for="income">
+                        Annual Household Income
+                    </label>
+
+                    <div class="input-wrapper">
+
+                        <span>₹</span>
+
+                        <input
+                            type="number"
+                            id="income"
+                            value="400000"
+                            min="0"
+                        >
+
+                    </div>
+
+                    <div class="range-row">
+
+                        <span>₹1 Lakh</span>
+                        <span>₹10 Lakh</span>
+
+                    </div>
+
+                    <input
+                        type="range"
+                        id="incomeRange"
+                        min="100000"
+                        max="1000000"
+                        step="10000"
+                        value="400000"
+                    >
+
+                </div>
+
+
+                <button id="simulateBtn">
+                    See what changes →
+                </button>
+
+            </div>
+
+
+            <!-- RESULT -->
+
+            <div class="simulator-result">
+
+                <span class="result-label">
+                    SIMULATED MATCH
+                </span>
+
+                <div class="match-change">
+
+                    <strong id="oldScore">
+                        68%
+                    </strong>
+
+                    <span>→</span>
+
+                    <strong id="newScore">
+                        68%
+                    </strong>
+
+                </div>
+
+                <p id="resultText">
+                    Adjust the scenario to see how your
+                    potential match could change.
+                </p>
+
+
+                <div class="result-status" id="resultStatus">
+                    Current scenario
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- EXPLANATION -->
+
+        <section class="explanation">
+
+            <div>
+
+                <span class="eyebrow">
+                    HOW IT WORKS
+                </span>
+
+                <h2>
+                    No guesswork.<br>
+                    Just possibilities.
+                </h2>
+
+            </div>
+
+            <div class="explanation-text">
+
+                <p>
+                    Saksham AI compares your profile against
+                    scheme conditions and shows which factors
+                    can influence your match.
+                </p>
+
+                <p>
+                    The simulator is designed to help you
+                    understand your options before making
+                    changes to your profile.
+                </p>
+
+            </div>
+
+        </section>
+
+
+        <!-- DISCLAIMER -->
+
+        <section class="notice">
+
+            <span>✳</span>
+
+            <p>
+                Simulation results are indicative only.
+                Final eligibility depends on the official
+                scheme rules and verification.
+            </p>
+
+        </section>
+
+    </main>
+
+
+    <script src="JS/what-if.js"></script>
+
+</body>
+
+</html>

@@ -1,0 +1,510 @@
+/* =========================
+   SAKSHAM AI — SCHEME COMPARISON
+========================= */
+
+:root {
+    --cream: #f7f3eb;
+    --white: #fffdf8;
+    --black: #171717;
+    --gray: #6d6962;
+    --border: #ddd7cb;
+
+    --orange: #ff633d;
+    --orange-dark: #e94d2c;
+    --orange-soft: #fff0ea;
+
+    --lime: #b8df35;
+}
+
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+
+body {
+    font-family: "DM Sans", Arial, sans-serif;
+    background: var(--cream);
+    color: var(--black);
+    line-height: 1.5;
+}
+
+
+/* =========================
+   NAVBAR
+========================= */
+
+.navbar {
+    height: 78px;
+    padding: 0 6%;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    background: var(--white);
+    border-bottom: 1px solid var(--border);
+}
+
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    color: var(--black);
+    text-decoration: none;
+
+    font-size: 18px;
+    font-weight: 800;
+}
+
+
+.brand-mark {
+    width: 34px;
+    height: 34px;
+
+    display: grid;
+    place-items: center;
+
+    background: var(--orange);
+    color: white;
+
+    font-weight: 900;
+}
+
+
+.back-link {
+    color: var(--black);
+    text-decoration: none;
+
+    font-size: 13px;
+    font-weight: 700;
+}
+
+
+.back-link:hover {
+    color: var(--orange-dark);
+}
+
+
+/* =========================
+   PAGE
+========================= */
+
+.comparison-page {
+    width: min(1250px, 92%);
+    margin: auto;
+
+    padding: 70px 0 50px;
+}
+
+
+/* =========================
+   HEADER
+========================= */
+
+.page-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+
+    gap: 30px;
+    margin-bottom: 45px;
+}
+
+
+.eyebrow {
+    display: block;
+
+    margin-bottom: 12px;
+
+    color: var(--orange-dark);
+
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 2px;
+}
+
+
+.page-header h1 {
+    max-width: 650px;
+
+    font-size: clamp(42px, 5vw, 66px);
+    line-height: 0.98;
+    letter-spacing: -3px;
+
+    font-weight: 900;
+}
+
+
+.page-header h1 span {
+    color: var(--orange);
+}
+
+
+.page-header p {
+    max-width: 580px;
+
+    margin-top: 20px;
+
+    color: var(--gray);
+    font-size: 15px;
+}
+
+
+.compare-count {
+    padding: 12px 16px;
+
+    background: var(--black);
+    color: var(--white);
+
+    font-size: 12px;
+    font-weight: 800;
+}
+
+
+/* =========================
+   COMPARISON TABLE
+========================= */
+
+.comparison-wrapper {
+    width: 100%;
+
+    overflow-x: auto;
+
+    border: 1px solid var(--border);
+}
+
+
+.comparison-table {
+    min-width: 900px;
+
+    display: grid;
+
+    grid-template-columns:
+        170px
+        repeat(3, 1fr);
+
+    background: var(--white);
+}
+
+
+/* =========================
+   FEATURE COLUMN
+========================= */
+
+.feature-column {
+    background: #eee9df;
+}
+
+
+.empty-header {
+    height: 180px;
+
+    border-bottom: 1px solid var(--border);
+}
+
+
+.feature {
+    min-height: 72px;
+
+    padding: 22px 18px;
+
+    display: flex;
+    align-items: center;
+
+    border-bottom: 1px solid var(--border);
+
+    color: var(--gray);
+
+    font-size: 12px;
+    font-weight: 800;
+}
+
+
+/* =========================
+   SCHEME COLUMNS
+========================= */
+
+.scheme-column {
+    background: var(--white);
+
+    border-left: 1px solid var(--border);
+}
+
+
+.scheme-column.featured {
+    border-top: 6px solid var(--orange);
+}
+
+
+.scheme-header {
+    height: 180px;
+
+    padding: 25px 22px;
+
+    border-bottom: 1px solid var(--border);
+}
+
+
+.scheme-tag {
+    display: inline-block;
+
+    margin-bottom: 18px;
+    padding: 6px 9px;
+
+    background: var(--lime);
+
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 1px;
+}
+
+
+.scheme-column:not(.featured) .scheme-tag {
+    background: #eeeae1;
+}
+
+
+.scheme-header h2 {
+    max-width: 210px;
+
+    font-size: 21px;
+    line-height: 1.1;
+    letter-spacing: -0.5px;
+}
+
+
+.scheme-header p {
+    margin-top: 7px;
+
+    color: var(--gray);
+
+    font-size: 11px;
+}
+
+
+/* =========================
+   VALUES
+========================= */
+
+.compare-value {
+    min-height: 72px;
+
+    padding: 20px 22px;
+
+    display: flex;
+    align-items: center;
+
+    border-bottom: 1px solid var(--border);
+
+    color: var(--gray);
+
+    font-size: 12px;
+    font-weight: 600;
+}
+
+
+.compare-value.score {
+    color: var(--orange-dark);
+
+    font-size: 25px;
+    font-weight: 900;
+}
+
+
+.eligible {
+    padding: 7px 10px;
+
+    background: #eef6d8;
+    color: #4d6810;
+
+    font-size: 11px;
+    font-weight: 900;
+}
+
+
+/* =========================
+   RECOMMENDATION
+========================= */
+
+.recommendation {
+    margin-top: 35px;
+    padding: 30px;
+
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+
+    gap: 25px;
+
+    background: var(--orange);
+}
+
+
+.recommendation-icon {
+    width: 55px;
+    height: 55px;
+
+    display: grid;
+    place-items: center;
+
+    background: var(--black);
+    color: var(--lime);
+
+    font-size: 22px;
+}
+
+
+.recommendation .eyebrow {
+    color: var(--black);
+    margin-bottom: 7px;
+}
+
+
+.recommendation h2 {
+    font-size: 23px;
+    line-height: 1.15;
+}
+
+
+.recommendation p {
+    margin-top: 7px;
+
+    color: #542318;
+
+    font-size: 12px;
+}
+
+
+.primary-btn {
+    padding: 15px 22px;
+
+    background: var(--black);
+    color: white;
+
+    text-decoration: none;
+
+    font-size: 12px;
+    font-weight: 800;
+
+    white-space: nowrap;
+
+    transition: 0.2s ease;
+}
+
+
+.primary-btn:hover {
+    transform: translateY(-2px);
+}
+
+
+/* =========================
+   FOOTER
+========================= */
+
+footer {
+    margin-top: 60px;
+    padding-top: 25px;
+
+    display: flex;
+    justify-content: space-between;
+
+    border-top: 1px solid var(--border);
+
+    font-size: 12px;
+}
+
+
+footer span {
+    font-weight: 900;
+}
+
+
+footer p {
+    color: var(--gray);
+}
+
+
+/* =========================
+   RESPONSIVE
+========================= */
+
+@media (max-width: 800px) {
+
+    .comparison-page {
+        padding-top: 45px;
+    }
+
+
+    .page-header {
+        display: block;
+    }
+
+
+    .compare-count {
+        display: inline-block;
+        margin-top: 22px;
+    }
+
+
+    .recommendation {
+        grid-template-columns: auto 1fr;
+    }
+
+
+    .primary-btn {
+        grid-column: 1 / -1;
+        width: fit-content;
+    }
+
+}
+
+
+@media (max-width: 550px) {
+
+    .navbar {
+        padding: 0 5%;
+    }
+
+
+    .comparison-page {
+        width: 90%;
+    }
+
+
+    .page-header h1 {
+        font-size: 44px;
+        letter-spacing: -2px;
+    }
+
+
+    .recommendation {
+        display: block;
+    }
+
+
+    .recommendation-icon {
+        margin-bottom: 20px;
+    }
+
+
+    .primary-btn {
+        display: inline-block;
+        margin-top: 20px;
+    }
+
+
+    footer {
+        display: block;
+    }
+
+
+    footer p {
+        margin-top: 7px;
+    }
+
+}
