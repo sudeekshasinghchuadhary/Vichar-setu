@@ -4,7 +4,9 @@ import pytest
 from pydantic import ValidationError
 
 from intelligence_engine.matching_engine import MatchingEngine
+from intelligence_engine.orchestrator import IntelligenceOrchestrator
 from intelligence_engine.schemas import EligibilityResult, MatchResult, Scheme, UserProfile
+from intelligence_engine.semantic_matcher import EmbeddingProvider, SemanticMatcher
 from tests.fixtures import make_match_result, make_scheme
 
 
@@ -145,3 +147,108 @@ def test_engine_has_no_llm_database_or_api_calls() -> None:
     assert "llm_client" not in dir(engine_module)
     for forbidden in ("sqlite", "postgres", "psycopg", "sqlalchemy", "requests", "fastapi", "openai"):
         assert forbidden not in dir(engine_module)
+
+
+class _HitEmbeddings(EmbeddingProvider):
+    """Shared-vocabulary vectors: identical direction, cosine 1.0."""
+
+    def embed(self, text: str) -> list[float]:
+        """Return a fixed non-zero vector regardless of input."""
+        return [1.0, 2.0, 3.0]
+
+
+class _MissEmbeddings(EmbeddingProvider):
+    """Empty-vocabulary vectors: zero overlap, semantic 0.0."""
+
+    def embed(self, text: str) -> list[float]:
+        """Return an all-zero vector regardless of input."""
+        return [0.0, 0.0, 0.0]
+
+
+def _full_match_scheme() -> Scheme:
+    """Scheme matching every fit dimension for a full 100.0 deterministic score."""
+    return Scheme(
+        id="scheme-full",
+        name="Full",
+        description="support",
+        supported_purposes=["business expansion"],
+        supported_project_types=["micro-enterprise"],
+        eligibility_rules={
+            "occupations": ["Farmer"],
+            "states": ["Uttar Pradesh"],
+            "categories": ["OBC"],
+            "min_education": "12th",
+        },
+    )
+
+
+def _full_match_profile() -> UserProfile:
+    """Profile matching every fit dimension of the full-match scheme."""
+    return UserProfile(
+        purpose="business expansion",
+        project_type="micro-enterprise",
+        occupation="Farmer",
+        state="Uttar Pradesh",
+        social_category="OBC",
+        education_level="12th",
+    )
+
+
+def _orchestrator(**overrides) -> IntelligenceOrchestrator:
+    """Orchestrator with stub processor (structured path needs none of it)."""
+    parts = {"profile_processor": None}
+    parts.update(overrides)
+    return IntelligenceOrchestrator(**parts)
+
+
+def test_deterministic_only_populates_deterministic_component() -> None:
+    """Deterministic ranking carries deterministic_score, semantic stays None."""
+    orch = _orchestrator()
+    profile = _full_match_profile()
+    result = orch.run_from_profile(profile, [_full_match_scheme()])
+    assert len(result.ranked_matches) == 1
+    match = result.ranked_matches[0]
+    assert match.score == 100.0
+    assert match.deterministic_score == 100.0
+    assert match.semantic_score is None
+
+
+def test_hybrid_populates_both_components_exact() -> None:
+    """det 100 + sem 100 at weight 0.25 blends to exactly 100 with both kept."""
+    orch = _orchestrator(
+        semantic_matcher=SemanticMatcher(_HitEmbeddings()), semantic_weight=0.25
+    )
+    result = orch.run_from_profile(_full_match_profile(), [_full_match_scheme()])
+    match = result.ranked_matches[0]
+    assert match.deterministic_score == 100.0
+    assert match.semantic_score == 100.0
+    assert match.score == 100.0
+
+
+def test_hybrid_partial_semantic_exact() -> None:
+    """det 100 + sem 0 at weight 0.25 blends to exactly 75 with both kept."""
+    orch = _orchestrator(
+        semantic_matcher=SemanticMatcher(_MissEmbeddings()), semantic_weight=0.25
+    )
+    result = orch.run_from_profile(_full_match_profile(), [_full_match_scheme()])
+    match = result.ranked_matches[0]
+    assert match.deterministic_score == 100.0
+    assert match.semantic_score == 0.0
+    assert match.score == 75.0
+
+
+def test_components_do_not_change_ranking() -> None:
+    """Hybrid ordering matches deterministic ordering on the same inputs."""
+    weak = Scheme(id="scheme-weak", name="Weak", supported_purposes=["other purpose"])
+    profile = _full_match_profile()
+    schemes = [_full_match_scheme(), weak]
+    det_order = [
+        m.scheme_id for m in _orchestrator().run_from_profile(profile, schemes).ranked_matches
+    ]
+    hybrid_order = [
+        m.scheme_id
+        for m in _orchestrator(
+            semantic_matcher=SemanticMatcher(_HitEmbeddings()), semantic_weight=0.25
+        ).run_from_profile(profile, schemes).ranked_matches
+    ]
+    assert det_order == hybrid_order == ["scheme-full", "scheme-weak"]

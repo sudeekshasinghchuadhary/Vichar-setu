@@ -183,12 +183,19 @@ class EligibilityResult(BaseModel):
 
 
 class MatchResult(BaseModel):
-    """Ranked match with a validated 0-100 score."""
+    """Ranked match with a validated 0-100 score.
+
+    deterministic_score/semantic_score preserve the hybrid components
+    without affecting ranking: deterministic-only results carry the
+    deterministic value with semantic None; hybrid results carry both.
+    """
 
     scheme_id: str = Field()
     score: float = Field(ge=0, le=100)
     rank: int = Field(ge=1)
     reasons: list[str] = Field(default_factory=list)
+    deterministic_score: Optional[float] = Field(default=None, ge=0, le=100)
+    semantic_score: Optional[float] = Field(default=None, ge=0, le=100)
 
 
 class PipelineResult(BaseModel):

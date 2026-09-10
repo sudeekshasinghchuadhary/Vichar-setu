@@ -236,9 +236,12 @@ class IntelligenceOrchestrator:
     def _rank(self, profile: Any, schemes: list[Scheme], eligibility: list[Any]) -> list[MatchResult]:
         """Deterministic ranking, or hybrid when a semantic matcher is set."""
         if self.semantic_matcher is None or self.semantic_weight == 0:
-            return self.matching_engine.rank_schemes(profile, schemes, eligibility)
+            ranked = self.matching_engine.rank_schemes(profile, schemes, eligibility)
+            for match in ranked:
+                match.deterministic_score = match.score
+            return ranked
         eligible_ids = {r.scheme_id for r in eligibility if r.status == "eligible"}
-        scored: list[tuple[str, float, list[str]]] = []
+        scored: list[tuple[str, float, float, float, list[str]]] = []
         for scheme in schemes:
             if scheme.id not in eligible_ids:
                 continue
@@ -249,13 +252,22 @@ class IntelligenceOrchestrator:
                 (
                     scheme.id,
                     hybrid,
+                    det_score,
+                    sem_score,
                     [*det_reasons, f"Semantic fit {sem_score}/100 (weight {self.semantic_weight})."],
                 )
             )
         scored.sort(key=lambda item: (-item[1], item[0]))
         return [
-            MatchResult(scheme_id=scheme_id, score=score, rank=rank, reasons=reasons)
-            for rank, (scheme_id, score, reasons) in enumerate(scored, start=1)
+            MatchResult(
+                scheme_id=scheme_id,
+                score=score,
+                rank=rank,
+                reasons=reasons,
+                deterministic_score=det_score,
+                semantic_score=sem_score,
+            )
+            for rank, (scheme_id, score, det_score, sem_score, reasons) in enumerate(scored, start=1)
         ]
 
     def _scheme_traces(
