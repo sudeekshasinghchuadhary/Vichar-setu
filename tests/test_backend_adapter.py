@@ -133,3 +133,27 @@ def test_deterministic_and_offline() -> None:
     assert "ENGINE_MODE" not in dir(adapter_module)
     first = match_schemes(_farmer_profile(), [_scheme_dict(1), _scheme_dict(2)])
     assert match_schemes(_farmer_profile(), [_scheme_dict(1), _scheme_dict(2)]) == first
+
+
+def test_application_link_preserved() -> None:
+    """Non-blank links pass through; absent links stay absent."""
+    assert _to_scheme(_scheme_dict(application_link="https://example.com/apply")).application_link == (
+        "https://example.com/apply"
+    )
+    assert _to_scheme(_scheme_dict(application_link="  ")).application_link is None
+    assert _to_scheme(_scheme_dict(application_link=None)).application_link is None
+
+
+def test_documents_split_on_explicit_delimiters_only() -> None:
+    """Newlines/semicolons split; prose with commas stays one entry."""
+    assert _to_scheme(
+        _scheme_dict(documents_required="Aadhaar\nIncome certificate\nAadhaar\n  ")
+    ).documents_required == ["Aadhaar", "Income certificate"]
+    assert _to_scheme(
+        _scheme_dict(documents_required="Aadhaar; PAN")
+    ).documents_required == ["Aadhaar", "PAN"]
+    assert _to_scheme(
+        _scheme_dict(documents_required="Aadhaar, PAN and income certificate")
+    ).documents_required == ["Aadhaar, PAN and income certificate"]
+    assert _to_scheme(_scheme_dict(documents_required=None)).documents_required == []
+    assert _to_scheme(_scheme_dict(documents_required="   ")).documents_required == []

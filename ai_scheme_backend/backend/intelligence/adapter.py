@@ -13,6 +13,9 @@ IntelligenceOrchestrator.run_from_profile():
     category -> categories [single value],
     state -> states [single value].
   A rule is added only when its source value is present and non-empty.
+- application_link passes through verbatim when present and non-blank.
+- documents_required converts conservatively: newlines/semicolons split
+  entries, all other prose stays one verbatim entry, empties dropped.
 - No LLM is required: run_from_profile() never touches the profile
   processor, so no API key or network is needed.
 - All eligibility/matching decisions stay inside intelligence_engine;
@@ -49,6 +52,24 @@ def _non_empty_str(value: Any) -> str | None:
     return cleaned or None
 
 
+def _to_document_list(value: Any) -> list[str]:
+    """Split a backend documents string only on explicit delimiters.
+
+    Newlines and semicolons separate entries; anything else (including
+    commas, which occur inside ordinary prose) keeps the text as one
+    verbatim entry. Empty fragments are dropped, exact duplicates
+    removed, order preserved. Never invents entries.
+    """
+    if not isinstance(value, str):
+        return []
+    entries: list[str] = []
+    for chunk in value.replace(";", "\n").split("\n"):
+        cleaned = " ".join(chunk.split())
+        if cleaned and cleaned not in entries:
+            entries.append(cleaned)
+    return entries
+
+
 def _to_scheme(scheme: dict[str, Any]) -> Scheme:
     """Translate a flat backend scheme dict into the intelligence Scheme."""
     rules: dict[str, Any] = {}
@@ -78,6 +99,8 @@ def _to_scheme(scheme: dict[str, Any]) -> Scheme:
         state=state,
         category=category,
         benefit=_non_empty_str(scheme.get("benefit")),
+        documents_required=_to_document_list(scheme.get("documents_required")),
+        application_link=_non_empty_str(scheme.get("application_link")),
     )
 
 
