@@ -331,3 +331,82 @@ def test_no_database_or_api_access() -> None:
 
     for forbidden in ("sqlite", "postgres", "psycopg", "sqlalchemy", "requests", "fastapi"):
         assert forbidden not in dir(orchestrator_module)
+
+
+def _structured_profile() -> UserProfile:
+    """Pre-validated profile matching FakeLLM output."""
+    return UserProfile(
+        age=25,
+        annual_family_income=180000.0,
+        occupation="Farmer",
+        education_level="Graduate",
+        social_category="OBC",
+        state="Uttar Pradesh",
+        purpose="business expansion",
+        project_type="micro-enterprise",
+    )
+
+
+def _structured_needs() -> Any:
+    """Pre-analyzed needs matching FakeNeeds output."""
+    from intelligence_engine.schemas import NeedAnalysisResult, SupportNeed
+
+    return NeedAnalysisResult(
+        business_goal="Expand tailoring business",
+        needs=[SupportNeed(need_type="machinery", amount=500000, amount_period="one_time")],
+        total_requested=500000,
+    )
+
+
+def test_structured_profile_path_matches_text_path() -> None:
+    """run_from_profile reuses the identical downstream flow."""
+    orch = _orchestrator()
+    schemes = [_open_scheme(), _strict_scheme()]
+    from_text = orch.run("tailoring business", schemes)
+    profile = _structured_profile()
+    from_structured = orch.run_from_profile(profile, schemes, _structured_needs())
+    assert from_structured.profile == profile
+    text_dump = from_text.model_dump()
+    text_dump.pop("stages_completed")
+    struct_dump = from_structured.model_dump()
+    struct_dump.pop("stages_completed")
+    assert struct_dump == text_dump
+    assert from_structured.stages_completed == [
+        "profile", "eligibility", "matching", "near_miss",
+        "support", "financial", "pathway", "traces",
+    ]
+
+
+def test_structured_profile_without_needs_skips_support() -> None:
+    """Omitted needs leave support/financial stages unmarked."""
+    result = _orchestrator().run_from_profile(_structured_profile(), [_open_scheme()])
+    assert result.needs is None
+    assert result.support_plan is None
+    assert result.coverage_results == []
+    assert "support" not in result.stages_completed
+    assert "financial" not in result.stages_completed
+    assert result.ranked_matches[0].scheme_id == "scheme-open"
+
+
+def test_structured_profile_never_calls_llm() -> None:
+    """The structured path works without any LLM-backed processor output."""
+
+    class ExplodingProcessor:
+        def process_profile(self, user_text: str) -> UserProfile:
+            """Must never be called."""
+            raise AssertionError("LLM path must not run")
+
+    orch = IntelligenceOrchestrator(profile_processor=ExplodingProcessor())
+    result = orch.run_from_profile(_structured_profile(), [_open_scheme()], _structured_needs())
+    assert result.profile.occupation == "Farmer"
+    assert result.schemes[0].eligibility.status == "eligible"
+
+
+def test_structured_profile_immutability() -> None:
+    """Supplied profile and needs objects are unchanged."""
+    profile = _structured_profile()
+    needs = _structured_needs()
+    before = (profile.model_dump(), needs.model_dump())
+    _orchestrator().run_from_profile(profile, [_open_scheme()], needs)
+    assert profile.model_dump() == before[0]
+    assert needs.model_dump() == before[1]

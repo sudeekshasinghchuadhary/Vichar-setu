@@ -30,8 +30,10 @@ from intelligence_engine.schemas import (
     GeneratedExplanation,
     IntelligenceResult,
     MatchResult,
+    NeedAnalysisResult,
     Scheme,
     SchemeInsights,
+    UserProfile,
 )
 from intelligence_engine.semantic_matcher import SemanticMatcher, combine_scores
 from intelligence_engine.support_planner import SupportPlanningEngine
@@ -116,6 +118,43 @@ class IntelligenceOrchestrator:
             needs = self.need_analyzer.analyze(user_text)
             stages.append("needs")
 
+        return self._execute(profile, needs, schemes, document_availability, stages)
+
+    def run_from_profile(
+        self,
+        profile: UserProfile,
+        schemes: list[Scheme],
+        needs: NeedAnalysisResult | None = None,
+        document_availability: dict[str, Any] | None = None,
+    ) -> IntelligenceResult:
+        """Run the same downstream flow from an already-validated profile.
+
+        Args:
+            profile: Validated UserProfile (e.g. built by FastAPI from
+                stored/verified data instead of natural language).
+            schemes: Already-structured candidate schemes.
+            needs: Optional pre-analyzed needs; when omitted, the
+                support/financial stages are skipped (the need analyzer
+                needs raw text, which this path does not take).
+            document_availability: Optional doc-name -> availability map
+                forwarded untouched to pathway planning.
+
+        Returns:
+            IntelligenceResult with accurately recorded stages_completed
+            ("profile" marked complete since a validated profile was
+            supplied, not extracted).
+        """
+        return self._execute(profile, needs, schemes, document_availability, ["profile"])
+
+    def _execute(
+        self,
+        profile: UserProfile,
+        needs: NeedAnalysisResult | None,
+        schemes: list[Scheme],
+        document_availability: dict[str, Any] | None,
+        stages: list[str],
+    ) -> IntelligenceResult:
+        """Shared downstream flow: eligibility -> result assembly."""
         eligibility = self.eligibility_engine.evaluate_many(profile, schemes)
         stages.append("eligibility")
         by_id = {item.scheme_id: item for item in eligibility}
