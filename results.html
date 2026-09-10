@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Your Scheme Matches — Saksham AI</title>
+
+    <link rel="stylesheet" href="css/results.css">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+
+    <!-- NAVBAR -->
+
+    <header class="navbar">
+
+        <a href="index.html" class="brand">
+            <span>✳</span>
+            Saksham AI
+        </a>
+
+        <nav>
+            <a href="#">My Profile</a>
+            <a href="#">How It Works</a>
+        </nav>
+
+        <button class="profile-btn">
+            <span>SU</span>
+            Profile
+        </button>
+
+    </header>
+
+
+    <!-- MAIN -->
+
+    <main class="results-page">
+
+        <!-- HEADER -->
+
+        <section class="results-header">
+
+            <div>
+
+                <span class="eyebrow">
+                    YOUR PERSONALIZED RESULTS
+                </span>
+
+                <h1>
+                    We found some
+                    <span>strong matches.</span>
+                </h1>
+
+                <p id="resultSummary">
+                    Based on your profile, we've identified
+                    schemes that could be relevant to you.
+                </p>
+
+            </div>
+
+
+            <div class="match-summary">
+
+                <strong>10+</strong>
+
+                <span>
+                    schemes<br>
+                    analysed
+                </span>
+
+            </div>
+
+        </section>
+
+
+        <!-- FILTER BAR -->
+
+        <section class="filter-bar">
+
+            <div class="filter-left">
+
+                <button class="filter active" data-filter="all">
+                    All Matches
+                </button>
+
+                <button class="filter" data-filter="eligible">
+                    ✓ Eligible
+                </button>
+
+                <button class="filter" data-filter="near">
+                    Near Match
+                </button>
+
+            </div>
+
+
+            <div class="sort-box">
+
+                <label for="sort">
+                    Sort by
+                </label>
+
+                <select id="sort">
+
+                    <option value="match">
+                        Best Match
+                    </option>
+
+                    <option value="amount">
+                        Highest Support
+                    </option>
+
+                </select>
+
+            </div>
+
+        </section>
+
+
+        <!-- SCHEME LIST -->
+
+        <section
+            class="scheme-grid"
+            id="schemeGrid"
+        >
+
+            <!-- JS WILL INSERT CARDS -->
+
+        </section>
+
+
+        <!-- BOTTOM -->
+
+        <section class="results-footer">
+
+            <div>
+
+                <span class="footer-mark">✳</span>
+
+                <strong>
+                    Don't see what you're looking for?
+                </strong>
+
+                <p>
+                    Your profile can unlock more possibilities
+                    as new schemes are added.
+                </p>
+
+            </div>
+
+            <button>
+                Update My Profile →
+            </button>
+
+        </section>
+
+    </main>
+
+
+    <script src="js/results.js"></script>
+
+</body>
+
+</html>

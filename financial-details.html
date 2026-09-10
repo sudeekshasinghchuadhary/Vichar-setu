@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Financial Details — Saksham AI</title>
+
+    <link rel="stylesheet" href="css/financial.css">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+
+    <!-- NAVBAR -->
+
+    <header class="onboarding-nav">
+
+        <a href="index.html" class="brand">
+            <span>✳</span>
+            Saksham AI
+        </a>
+
+        <div class="progress-text">
+            Profile setup <strong>3 / 3</strong>
+        </div>
+
+        <a href="login.html" class="exit-link">
+            Exit
+        </a>
+
+    </header>
+
+
+    <main class="onboarding-page">
+
+        <!-- SIDEBAR -->
+
+        <aside class="steps-sidebar">
+
+            <div class="step completed">
+
+                <div class="step-circle">✓</div>
+
+                <div>
+                    <strong>Personal Details</strong>
+                    <span>Tell us about yourself</span>
+                </div>
+
+            </div>
+
+
+            <div class="step-line active-line"></div>
+
+
+            <div class="step completed">
+
+                <div class="step-circle">✓</div>
+
+                <div>
+                    <strong>Business Details</strong>
+                    <span>What are you building?</span>
+                </div>
+
+            </div>
+
+
+            <div class="step-line active-line"></div>
+
+
+            <div class="step active">
+
+                <div class="step-circle">3</div>
+
+                <div>
+                    <strong>Financial Details</strong>
+                    <span>Understand your needs</span>
+                </div>
+
+            </div>
+
+
+            <div class="sidebar-note">
+
+                <span>₹</span>
+
+                <p>
+                    Your financial information helps
+                    us identify schemes with the right
+                    support for you.
+                </p>
+
+            </div>
+
+        </aside>
+
+
+        <!-- FORM -->
+
+        <section class="form-section">
+
+            <div class="form-heading">
+
+                <span class="section-kicker">
+                    STEP 03 — FINANCIAL DETAILS
+                </span>
+
+                <h1>
+                    What's your
+                    <span>financial picture?</span>
+                </h1>
+
+                <p>
+                    Don't worry about being exact. An estimate
+                    is enough for us to find relevant schemes.
+                </p>
+
+            </div>
+
+
+            <form id="financialForm">
+
+
+                <!-- ANNUAL INCOME -->
+
+                <div class="form-row">
+
+                    <div class="form-group">
+
+                        <label for="income">
+                            Annual Household Income <span>*</span>
+                        </label>
+
+                        <div class="input-prefix">
+                            <span>₹</span>
+
+                            <input
+                                type="number"
+                                id="income"
+                                placeholder="e.g. 300000"
+                                min="0"
+                                required
+                            >
+                        </div>
+
+                        <small class="helper">
+                            Approximate yearly household income
+                        </small>
+
+                    </div>
+
+
+                    <!-- BUSINESS REVENUE -->
+
+                    <div class="form-group">
+
+                        <label for="revenue">
+                            Annual Business Revenue
+                        </label>
+
+                        <div class="input-prefix">
+                            <span>₹</span>
+
+                            <input
+                                type="number"
+                                id="revenue"
+                                placeholder="e.g. 500000"
+                                min="0"
+                            >
+                        </div>
+
+                        <small class="helper">
+                            Enter 0 if you haven't started yet
+                        </small>
+
+                    </div>
+
+                </div>
+
+
+                <!-- INVESTMENT + FUNDING -->
+
+                <div class="form-row">
+
+                    <div class="form-group">
+
+                        <label for="investment">
+                            Current Investment
+                        </label>
+
+                        <div class="input-prefix">
+                            <span>₹</span>
+
+                            <input
+                                type="number"
+                                id="investment"
+                                placeholder="e.g. 100000"
+                                min="0"
+                            >
+                        </div>
+
+                        <small class="helper">
+                            Money already invested in your venture
+                        </small>
+
+                    </div>
+
+
+                    <div class="form-group">
+
+                        <label for="funding">
+                            Funding Required
+                        </label>
+
+                        <div class="input-prefix">
+                            <span>₹</span>
+
+                            <input
+                                type="number"
+                                id="funding"
+                                placeholder="e.g. 500000"
+                                min="0"
+                            >
+                        </div>
+
+                        <small class="helper">
+                            How much support are you looking for?
+                        </small>
+
+                    </div>
+
+                </div>
+
+
+                <!-- EXISTING LOAN -->
+
+                <div class="form-group full">
+
+                    <label>
+                        Do you currently have a business loan?
+                        <span>*</span>
+                    </label>
+
+                    <div class="loan-options">
+
+                        <label class="loan-card">
+
+                            <input
+                                type="radio"
+                                name="existingLoan"
+                                value="yes"
+                                required
+                            >
+
+                            <span>
+                                <strong>Yes</strong>
+                                <small>I currently have a loan</small>
+                            </span>
+
+                        </label>
+
+
+                        <label class="loan-card">
+
+                            <input
+                                type="radio"
+                                name="existingLoan"
+                                value="no"
+                            >
+
+                            <span>
+                                <strong>No</strong>
+                                <small>I don't have a business loan</small>
+                            </span>
+
+                        </label>
+
+                    </div>
+
+                </div>
+
+
+                <!-- SPECIAL CATEGORY -->
+
+                <div class="form-group full">
+
+                    <label>
+                        Do any of these apply to you?
+                    </label>
+
+                    <div class="category-grid">
+
+                        <label class="category-card">
+
+                            <input
+                                type="checkbox"
+                                name="specialCategory"
+                                value="women"
+                            >
+
+                            <span>♀</span>
+
+                            <b>Women entrepreneur</b>
+
+                        </label>
+
+
+                        <label class="category-card">
+
+                            <input
+                                type="checkbox"
+                                name="specialCategory"
+                                value="sc-st"
+                            >
+
+                            <span>◈</span>
+
+                            <b>SC / ST</b>
+
+                        </label>
+
+
+                        <label class="category-card">
+
+                            <input
+                                type="checkbox"
+                                name="specialCategory"
+                                value="minority"
+                            >
+
+                            <span>◎</span>
+
+                            <b>Minority</b>
+
+                        </label>
+
+
+                        <label class="category-card">
+
+                            <input
+                                type="checkbox"
+                                name="specialCategory"
+                                value="disability"
+                            >
+
+                            <span>✦</span>
+
+                            <b>Person with disability</b>
+
+                        </label>
+
+                    </div>
+
+                </div>
+
+
+                <!-- FOOTER -->
+
+                <div class="form-footer">
+
+                    <a
+                        href="business-details.html"
+                        class="back-button"
+                    >
+                        ← Back
+                    </a>
+
+                    <button type="submit">
+                        Find My Schemes
+                        <span>→</span>
+                    </button>
+
+                </div>
+
+            </form>
+
+        </section>
+
+    </main>
+
+
+    <script src="js/financial.js"></script>
+
+</body>
+
+</html>

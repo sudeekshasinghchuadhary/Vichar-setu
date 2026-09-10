@@ -1,0 +1,633 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --cream: #f7f3eb;
+    --cream-dark: #eee8dc;
+    --white: #fffdf8;
+    --black: #171717;
+    --gray: #6d6962;
+    --orange: #ff633d;
+    --orange-soft: #fff1eb;
+    --lime: #b8df35;
+    --border: #ddd7cb;
+}
+
+body {
+    background: var(--cream);
+    color: var(--black);
+
+    font-family: "DM Sans", sans-serif;
+}
+
+
+/* =========================
+   NAVBAR
+========================= */
+
+.navbar {
+    height: 75px;
+
+    padding: 0 6%;
+
+    border-bottom: 1px solid var(--border);
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+
+    gap: 8px;
+
+    text-decoration: none;
+
+    color: var(--black);
+
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: 19px;
+
+    font-weight: 800;
+}
+
+.brand span {
+    color: var(--orange);
+
+    font-size: 25px;
+}
+
+.back-link {
+    color: var(--gray);
+
+    text-decoration: none;
+
+    font-size: 10px;
+
+    font-weight: 700;
+}
+
+.back-link:hover {
+    color: var(--orange);
+}
+
+
+/* =========================
+   PAGE
+========================= */
+
+.details-page {
+    width: min(1150px, 90%);
+
+    margin: auto;
+
+    padding: 65px 0 90px;
+}
+
+
+/* =========================
+   HERO
+========================= */
+
+.scheme-hero {
+    display: flex;
+
+    align-items: flex-end;
+
+    justify-content: space-between;
+
+    gap: 50px;
+
+    padding-bottom: 55px;
+
+    border-bottom: 1px solid var(--border);
+}
+
+.scheme-tag {
+    display: inline-block;
+
+    padding: 7px 10px;
+
+    background: var(--black);
+
+    color: white;
+
+    border-radius: 5px;
+
+    font-size: 8px;
+
+    font-weight: 800;
+
+    letter-spacing: 1px;
+}
+
+.hero-left h1 {
+    max-width: 720px;
+
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: clamp(43px, 6vw, 70px);
+
+    line-height: 0.96;
+
+    letter-spacing: -4px;
+
+    margin-top: 18px;
+}
+
+.hero-left p {
+    max-width: 600px;
+
+    color: var(--gray);
+
+    font-size: 13px;
+
+    line-height: 1.6;
+
+    margin-top: 18px;
+}
+
+.status-pill {
+    display: inline-block;
+
+    margin-top: 20px;
+
+    padding: 8px 12px;
+
+    background: #eaf4c9;
+
+    border-radius: 20px;
+
+    font-size: 9px;
+
+    font-weight: 800;
+}
+
+
+/* MATCH BOX */
+
+.match-box {
+    width: 155px;
+
+    min-width: 155px;
+
+    height: 155px;
+
+    padding: 20px;
+
+    background: var(--orange);
+
+    color: white;
+
+    border-radius: 18px;
+
+    display: flex;
+
+    flex-direction: column;
+
+    justify-content: center;
+
+    transform: rotate(2deg);
+}
+
+.match-box span {
+    font-size: 9px;
+
+    font-weight: 700;
+
+    opacity: 0.8;
+}
+
+.match-box strong {
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: 46px;
+
+    line-height: 1;
+
+    margin: 8px 0;
+}
+
+.match-box small {
+    font-size: 8px;
+
+    opacity: 0.8;
+}
+
+
+/* =========================
+   QUICK INFO
+========================= */
+
+.quick-info {
+    display: grid;
+
+    grid-template-columns: repeat(4, 1fr);
+
+    border-bottom: 1px solid var(--border);
+}
+
+.info-item {
+    padding: 22px 20px;
+
+    border-right: 1px solid var(--border);
+}
+
+.info-item:last-child {
+    border-right: none;
+}
+
+.info-item span {
+    display: block;
+
+    color: var(--gray);
+
+    font-size: 8px;
+
+    font-weight: 800;
+
+    letter-spacing: 0.8px;
+}
+
+.info-item strong {
+    display: block;
+
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: 12px;
+
+    margin-top: 7px;
+}
+
+.info-item .green {
+    color: #4e7010;
+}
+
+
+/* =========================
+   CONTENT GRID
+========================= */
+
+.content-grid {
+    display: grid;
+
+    grid-template-columns: 1fr 300px;
+
+    gap: 60px;
+
+    padding-top: 55px;
+}
+
+
+/* =========================
+   CONTENT
+========================= */
+
+.content-section {
+    display: grid;
+
+    grid-template-columns: 45px 1fr;
+
+    gap: 15px;
+
+    padding: 35px 0;
+
+    border-bottom: 1px solid var(--border);
+}
+
+.content-section:first-child {
+    padding-top: 0;
+}
+
+.section-number {
+    color: var(--orange);
+
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: 10px;
+
+    font-weight: 800;
+}
+
+.section-label {
+    color: var(--gray);
+
+    font-size: 8px;
+
+    font-weight: 800;
+
+    letter-spacing: 1.2px;
+}
+
+.content-section h2 {
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: 27px;
+
+    letter-spacing: -1px;
+
+    margin: 10px 0 13px;
+}
+
+.content-section h2 span {
+    color: var(--orange);
+
+    font-style: italic;
+}
+
+.content-section > div > p {
+    max-width: 620px;
+
+    color: var(--gray);
+
+    font-size: 11px;
+
+    line-height: 1.7;
+}
+
+
+/* =========================
+   REASONS
+========================= */
+
+.reason-list {
+    margin-top: 25px;
+
+    display: flex;
+
+    flex-direction: column;
+
+    gap: 17px;
+}
+
+.reason {
+    display: flex;
+
+    gap: 12px;
+}
+
+.reason > span {
+    width: 25px;
+    height: 25px;
+
+    flex-shrink: 0;
+
+    border-radius: 50%;
+
+    background: var(--lime);
+
+    display: grid;
+
+    place-items: center;
+
+    font-size: 10px;
+
+    font-weight: 900;
+}
+
+.reason strong {
+    display: block;
+
+    font-size: 11px;
+}
+
+.reason p {
+    color: var(--gray);
+
+    font-size: 9px;
+
+    line-height: 1.5;
+
+    margin-top: 3px;
+}
+
+
+/* =========================
+   ELIGIBILITY LIST
+========================= */
+
+.eligibility-list {
+    list-style: none;
+
+    display: flex;
+
+    flex-direction: column;
+
+    gap: 13px;
+
+    margin-top: 20px;
+}
+
+.eligibility-list li {
+    display: flex;
+
+    align-items: flex-start;
+
+    gap: 10px;
+
+    color: var(--gray);
+
+    font-size: 10px;
+
+    line-height: 1.5;
+}
+
+.eligibility-list li span {
+    color: var(--orange);
+
+    font-weight: 900;
+}
+
+
+/* =========================
+   SIDEBAR
+========================= */
+
+.action-sidebar {
+    display: flex;
+
+    flex-direction: column;
+
+    gap: 15px;
+}
+
+.action-card {
+    padding: 25px;
+
+    background: var(--black);
+
+    color: white;
+
+    border-radius: 14px;
+
+    position: sticky;
+
+    top: 25px;
+}
+
+.action-label {
+    color: var(--lime);
+
+    font-size: 8px;
+
+    font-weight: 800;
+
+    letter-spacing: 1px;
+}
+
+.action-card h3 {
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: 27px;
+
+    line-height: 1;
+
+    letter-spacing: -1px;
+
+    margin: 12px 0;
+}
+
+.action-card p {
+    color: #aaa69f;
+
+    font-size: 10px;
+
+    line-height: 1.5;
+
+    margin-bottom: 20px;
+}
+
+.action-card button {
+    width: 100%;
+
+    padding: 13px;
+
+    border: none;
+
+    border-radius: 7px;
+
+    background: var(--orange);
+
+    color: white;
+
+    font-family: "DM Sans", sans-serif;
+
+    font-size: 9px;
+
+    font-weight: 800;
+
+    cursor: pointer;
+}
+
+.action-card button:hover {
+    transform: translateY(-2px);
+}
+
+
+/* NOTE */
+
+.note-card {
+    padding: 20px;
+
+    background: var(--lime);
+
+    border-radius: 12px;
+}
+
+.note-card > span {
+    font-size: 22px;
+
+    font-weight: 800;
+}
+
+.note-card strong {
+    display: block;
+
+    font-size: 11px;
+
+    margin-top: 10px;
+}
+
+.note-card p {
+    color: #454b22;
+
+    font-size: 9px;
+
+    line-height: 1.5;
+
+    margin-top: 5px;
+}
+
+
+/* =========================
+   MOBILE
+========================= */
+
+@media (max-width: 850px) {
+
+    .scheme-hero {
+        align-items: flex-start;
+
+        flex-direction: column;
+    }
+
+    .match-box {
+        width: 130px;
+
+        height: 130px;
+
+        min-width: 130px;
+    }
+
+    .quick-info {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .info-item:nth-child(2) {
+        border-right: none;
+    }
+
+    .content-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .action-sidebar {
+        margin-top: 10px;
+    }
+
+    .action-card {
+        position: static;
+    }
+}
+
+
+@media (max-width: 550px) {
+
+    .navbar {
+        padding: 0 5%;
+    }
+
+    .details-page {
+        width: 88%;
+    }
+
+    .hero-left h1 {
+        letter-spacing: -2.5px;
+    }
+
+    .quick-info {
+        grid-template-columns: 1fr;
+    }
+
+    .info-item {
+        border-right: none;
+
+        border-bottom: 1px solid var(--border);
+    }
+}

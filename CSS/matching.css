@@ -1,0 +1,508 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --cream: #f7f3eb;
+    --white: #fffdf8;
+    --black: #171717;
+    --gray: #706c64;
+    --border: #ddd7cb;
+    --orange: #ff633d;
+    --lime: #b8df35;
+}
+
+body {
+    min-height: 100vh;
+
+    background: var(--cream);
+
+    color: var(--black);
+
+    font-family: "DM Sans", sans-serif;
+
+    overflow: hidden;
+}
+
+
+/* =========================
+   PAGE
+========================= */
+
+.matching-page {
+    min-height: 100vh;
+
+    position: relative;
+
+    display: flex;
+
+    flex-direction: column;
+
+    align-items: center;
+
+    padding: 38px 20px;
+}
+
+
+/* =========================
+   BRAND
+========================= */
+
+.brand {
+    position: absolute;
+
+    top: 35px;
+    left: 6%;
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 8px;
+
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-weight: 800;
+
+    font-size: 18px;
+
+    z-index: 5;
+}
+
+.brand span {
+    color: var(--orange);
+
+    font-size: 25px;
+}
+
+
+/* =========================
+   MAIN CONTENT
+========================= */
+
+.matching-content {
+    width: min(650px, 100%);
+
+    margin-top: 100px;
+
+    position: relative;
+
+    z-index: 3;
+}
+
+.ai-label {
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 8px;
+
+    font-size: 9px;
+
+    font-weight: 800;
+
+    letter-spacing: 1.5px;
+
+    color: var(--orange);
+
+    margin-bottom: 15px;
+}
+
+.pulse-dot {
+    width: 7px;
+    height: 7px;
+
+    border-radius: 50%;
+
+    background: var(--orange);
+
+    animation: pulse 1.3s infinite;
+}
+
+@keyframes pulse {
+
+    0% {
+        transform: scale(1);
+
+        opacity: 1;
+    }
+
+    50% {
+        transform: scale(1.6);
+
+        opacity: 0.45;
+    }
+
+    100% {
+        transform: scale(1);
+
+        opacity: 1;
+    }
+}
+
+
+.matching-content h1 {
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: clamp(42px, 6vw, 68px);
+
+    line-height: 0.98;
+
+    letter-spacing: -4px;
+
+    max-width: 650px;
+}
+
+.matching-content h1 span {
+    color: var(--orange);
+
+    font-style: italic;
+}
+
+.intro {
+    color: var(--gray);
+
+    font-size: 13px;
+
+    line-height: 1.6;
+
+    max-width: 500px;
+
+    margin-top: 20px;
+
+    margin-bottom: 30px;
+}
+
+
+/* =========================
+   ANALYSIS CARD
+========================= */
+
+.analysis-card {
+    background: var(--white);
+
+    border: 1px solid var(--border);
+
+    border-radius: 15px;
+
+    padding: 25px;
+
+    box-shadow:
+        0 20px 60px rgba(23, 23, 23, 0.07);
+}
+
+
+/* TOP */
+
+.analysis-top {
+    display: flex;
+
+    align-items: center;
+
+    gap: 13px;
+}
+
+.analysis-icon {
+    width: 42px;
+    height: 42px;
+
+    border-radius: 10px;
+
+    display: grid;
+    place-items: center;
+
+    background: var(--black);
+
+    color: var(--lime);
+
+    font-size: 19px;
+}
+
+.analysis-top strong {
+    display: block;
+
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: 12px;
+}
+
+.analysis-top span {
+    display: block;
+
+    color: var(--gray);
+
+    font-size: 9px;
+
+    margin-top: 3px;
+}
+
+.status {
+    margin-left: auto;
+
+    padding: 6px 9px;
+
+    background: #fff1ec;
+
+    color: var(--orange);
+
+    border-radius: 20px;
+
+    font-size: 8px;
+
+    font-weight: 800;
+
+    letter-spacing: 0.8px;
+}
+
+
+/* =========================
+   PROGRESS
+========================= */
+
+.progress-area {
+    margin-top: 25px;
+}
+
+.progress-track {
+    width: 100%;
+
+    height: 7px;
+
+    background: #ebe5da;
+
+    border-radius: 20px;
+
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+
+    width: 0%;
+
+    background: var(--orange);
+
+    border-radius: 20px;
+
+    transition: width 0.3s ease;
+}
+
+.progress-info {
+    margin-top: 8px;
+
+    display: flex;
+
+    justify-content: space-between;
+
+    color: var(--gray);
+
+    font-size: 9px;
+}
+
+.progress-info span:first-child {
+    color: var(--black);
+
+    font-weight: 800;
+}
+
+
+/* =========================
+   CHECKLIST
+========================= */
+
+.check-list {
+    margin-top: 25px;
+
+    display: flex;
+
+    flex-direction: column;
+
+    gap: 12px;
+}
+
+.check-item {
+    display: flex;
+
+    align-items: center;
+
+    gap: 12px;
+
+    opacity: 0.35;
+
+    transition: 0.35s ease;
+}
+
+.check-item.active,
+.check-item.completed {
+    opacity: 1;
+}
+
+.check-icon {
+    width: 25px;
+    height: 25px;
+
+    border-radius: 50%;
+
+    border: 1px solid #d4cec3;
+
+    display: grid;
+
+    place-items: center;
+
+    font-size: 10px;
+
+    flex-shrink: 0;
+
+    transition: 0.3s ease;
+}
+
+.check-item.active .check-icon {
+    background: var(--lime);
+
+    border-color: var(--lime);
+
+    animation: iconPulse 1s infinite;
+}
+
+.check-item.completed .check-icon {
+    background: var(--black);
+
+    border-color: var(--black);
+
+    color: white;
+
+    animation: none;
+}
+
+@keyframes iconPulse {
+
+    50% {
+        transform: scale(1.1);
+    }
+
+}
+
+.check-item strong {
+    display: block;
+
+    font-size: 11px;
+}
+
+.check-item span {
+    display: block;
+
+    color: var(--gray);
+
+    font-size: 9px;
+
+    margin-top: 2px;
+}
+
+
+/* =========================
+   TRUST NOTE
+========================= */
+
+.trust-note {
+    margin-top: 20px;
+
+    color: var(--gray);
+
+    font-size: 10px;
+
+    text-align: center;
+}
+
+.trust-note span {
+    color: var(--black);
+
+    font-weight: 800;
+}
+
+
+/* =========================
+   DECORATIONS
+========================= */
+
+.orange-shape {
+    position: absolute;
+
+    width: 250px;
+    height: 250px;
+
+    right: -80px;
+    top: 30%;
+
+    background: var(--orange);
+
+    border-radius: 44% 56% 62% 38% / 48% 42% 58% 52%;
+
+    transform: rotate(18deg);
+
+    opacity: 0.9;
+}
+
+.lime-shape {
+    position: absolute;
+
+    width: 120px;
+    height: 120px;
+
+    left: 5%;
+    bottom: 8%;
+
+    background: var(--lime);
+
+    border-radius: 53% 47% 40% 60% / 50% 42% 58% 50%;
+
+    transform: rotate(-15deg);
+}
+
+
+/* =========================
+   MOBILE
+========================= */
+
+@media (max-width: 700px) {
+
+    body {
+        overflow: auto;
+    }
+
+    .brand {
+        position: static;
+
+        align-self: flex-start;
+
+        margin-left: 5%;
+    }
+
+    .matching-content {
+        margin-top: 80px;
+    }
+
+    .matching-content h1 {
+        letter-spacing: -2.5px;
+    }
+
+    .analysis-card {
+        padding: 20px;
+    }
+
+    .orange-shape {
+        width: 150px;
+        height: 150px;
+
+        right: -80px;
+    }
+
+    .lime-shape {
+        width: 80px;
+        height: 80px;
+
+        left: -20px;
+    }
+
+}

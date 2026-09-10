@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Financial Analysis | Saksham AI</title>
+
+    <link rel="stylesheet" href="CSS/financial-analysis.css">
+</head>
+
+<body>
+
+    <!-- NAVBAR -->
+    <nav class="navbar">
+
+        <a href="results.html" class="brand">
+            <span class="brand-mark">S</span>
+            Saksham AI
+        </a>
+
+        <a href="results.html" class="back-link">
+            ← Back to matches
+        </a>
+
+    </nav>
+
+
+    <!-- MAIN -->
+    <main class="analysis-page">
+
+        <!-- HEADER -->
+        <section class="page-header">
+
+            <div>
+                <span class="eyebrow">FINANCIAL SNAPSHOT</span>
+
+                <h1>
+                    Understand your
+                    <span>financial position.</span>
+                </h1>
+
+                <p>
+                    A simple overview of your income, investment,
+                    funding requirement and financial readiness.
+                </p>
+            </div>
+
+            <div class="analysis-badge">
+                <span class="badge-dot"></span>
+                Profile analysed
+            </div>
+
+        </section>
+
+
+        <!-- SUMMARY CARDS -->
+        <section class="summary-grid">
+
+            <div class="summary-card">
+
+                <span class="card-label">HOUSEHOLD INCOME</span>
+
+                <strong id="incomeValue">
+                    ₹4,00,000
+                </strong>
+
+                <small>Annual</small>
+
+            </div>
+
+
+            <div class="summary-card">
+
+                <span class="card-label">BUSINESS REVENUE</span>
+
+                <strong id="revenueValue">
+                    ₹2,50,000
+                </strong>
+
+                <small>Annual</small>
+
+            </div>
+
+
+            <div class="summary-card">
+
+                <span class="card-label">CURRENT INVESTMENT</span>
+
+                <strong id="investmentValue">
+                    ₹1,00,000
+                </strong>
+
+                <small>Available</small>
+
+            </div>
+
+
+            <div class="summary-card highlight">
+
+                <span class="card-label">FUNDING REQUIRED</span>
+
+                <strong id="fundingValue">
+                    ₹5,00,000
+                </strong>
+
+                <small>Estimated requirement</small>
+
+            </div>
+
+        </section>
+
+
+        <!-- MAIN ANALYSIS -->
+        <section class="analysis-grid">
+
+
+            <!-- FINANCIAL READINESS -->
+            <div class="analysis-card readiness-card">
+
+                <div class="section-heading">
+
+                    <div>
+                        <span class="section-number">01</span>
+
+                        <h2>Financial readiness</h2>
+                    </div>
+
+                    <span class="status-pill">
+                        Moderate
+                    </span>
+
+                </div>
+
+
+                <div class="score-area">
+
+                    <div class="score-circle">
+                        <span id="readinessScore">72</span>
+                        <small>/100</small>
+                    </div>
+
+                    <div>
+
+                        <h3>Good starting position</h3>
+
+                        <p>
+                            Your profile shows a reasonable base,
+                            with additional funding needed for growth.
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+                <div class="progress-row">
+
+                    <div class="progress-label">
+                        <span>Income stability</span>
+                        <strong>72%</strong>
+                    </div>
+
+                    <div class="progress-bar">
+                        <span style="width:72%"></span>
+                    </div>
+
+                </div>
+
+
+                <div class="progress-row">
+
+                    <div class="progress-label">
+                        <span>Self-investment capacity</span>
+                        <strong>60%</strong>
+                    </div>
+
+                    <div class="progress-bar">
+                        <span style="width:60%"></span>
+                    </div>
+
+                </div>
+
+
+                <div class="progress-row">
+
+                    <div class="progress-label">
+                        <span>Funding requirement</span>
+                        <strong>78%</strong>
+                    </div>
+
+                    <div class="progress-bar">
+                        <span style="width:78%"></span>
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <!-- FUNDING BREAKDOWN -->
+            <div class="analysis-card funding-card">
+
+                <div class="section-heading">
+
+                    <div>
+                        <span class="section-number">02</span>
+
+                        <h2>Funding picture</h2>
+                    </div>
+
+                </div>
+
+
+                <div class="funding-amount">
+
+                    <span>Required</span>
+
+                    <strong>
+                        ₹5,00,000
+                    </strong>
+
+                </div>
+
+
+                <div class="funding-row">
+
+                    <span>Your investment</span>
+
+                    <strong>₹1,00,000</strong>
+
+                </div>
+
+
+                <div class="funding-row">
+
+                    <span>Potential funding gap</span>
+
+                    <strong class="orange-text">
+                        ₹4,00,000
+                    </strong>
+
+                </div>
+
+
+                <div class="funding-note">
+
+                    <span>→</span>
+
+                    <p>
+                        Government funding and credit-support
+                        schemes may help bridge this gap.
+                    </p>
+
+                </div>
+
+            </div>
+
+
+        </section>
+
+
+        <!-- INSIGHTS -->
+        <section class="insights-section">
+
+            <div class="section-heading">
+
+                <div>
+                    <span class="section-number">03</span>
+
+                    <h2>What this means for you</h2>
+                </div>
+
+            </div>
+
+
+            <div class="insights-grid">
+
+                <div class="insight-card">
+
+                    <span class="insight-icon">+</span>
+
+                    <h3>Strong point</h3>
+
+                    <p>
+                        You already have some investment capacity
+                        to contribute towards your business.
+                    </p>
+
+                </div>
+
+
+                <div class="insight-card">
+
+                    <span class="insight-icon">!</span>
+
+                    <h3>Watch out</h3>
+
+                    <p>
+                        Your funding requirement is higher than
+                        your current self-investment.
+                    </p>
+
+                </div>
+
+
+                <div class="insight-card dark">
+
+                    <span class="insight-icon">→</span>
+
+                    <h3>Recommended direction</h3>
+
+                    <p>
+                        Explore funding, credit guarantee and
+                        entrepreneurship support schemes.
+                    </p>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- CTA -->
+        <section class="next-step">
+
+            <div>
+
+                <span class="eyebrow">
+                    NEXT STEP
+                </span>
+
+                <h2>
+                    Explore schemes matched to your profile.
+                </h2>
+
+            </div>
+
+            <a href="results.html" class="primary-btn">
+                View My Matches →
+            </a>
+
+        </section>
+
+    </main>
+
+
+    <script src="JS/financial-analysis.js"></script>
+
+</body>
+
+</html>

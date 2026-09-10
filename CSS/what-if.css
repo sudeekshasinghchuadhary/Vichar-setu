@@ -1,0 +1,504 @@
+/* =========================
+   SAKSHAM AI — WHAT IF
+========================= */
+
+:root {
+    --cream: #f7f3eb;
+    --cream-dark: #eee8dc;
+    --white: #fffdf8;
+    --black: #171717;
+    --gray: #68655f;
+    --orange: #ff633d;
+    --lime: #b8df35;
+    --border: #ded8cc;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: "DM Sans", sans-serif;
+    background: var(--cream);
+    color: var(--black);
+    line-height: 1.6;
+}
+
+
+/* =========================
+   NAVBAR
+========================= */
+
+.navbar {
+    height: 82px;
+    padding: 0 6%;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    border-bottom: 1px solid var(--border);
+    background: rgba(247, 243, 235, 0.95);
+
+    position: sticky;
+    top: 0;
+    z-index: 10;
+
+    backdrop-filter: blur(12px);
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    text-decoration: none;
+    color: var(--black);
+
+    font-family: "Plus Jakarta Sans", sans-serif;
+    font-size: 21px;
+    font-weight: 800;
+}
+
+.brand span {
+    color: var(--orange);
+    font-size: 27px;
+}
+
+.back-link {
+    color: var(--gray);
+    text-decoration: none;
+
+    font-size: 14px;
+    font-weight: 600;
+
+    transition: 0.2s ease;
+}
+
+.back-link:hover {
+    color: var(--orange);
+}
+
+
+/* =========================
+   MAIN
+========================= */
+
+.whatif-page {
+    width: min(1150px, 90%);
+    margin: auto;
+    padding: 90px 0 100px;
+}
+
+
+/* =========================
+   INTRO
+========================= */
+
+.whatif-intro {
+    max-width: 700px;
+    margin-bottom: 60px;
+}
+
+.eyebrow {
+    display: inline-block;
+
+    color: var(--orange);
+
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 2px;
+
+    margin-bottom: 18px;
+}
+
+.whatif-intro h1 {
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: clamp(52px, 7vw, 82px);
+    line-height: 0.98;
+
+    letter-spacing: -4px;
+
+    margin-bottom: 25px;
+}
+
+.whatif-intro p {
+    max-width: 570px;
+
+    color: var(--gray);
+
+    font-size: 18px;
+    line-height: 1.7;
+}
+
+
+/* =========================
+   SIMULATOR
+========================= */
+
+.simulator {
+    display: grid;
+    grid-template-columns: 1.15fr 0.85fr;
+
+    background: var(--white);
+
+    border: 1px solid var(--border);
+
+    box-shadow: 0 20px 55px rgba(23, 23, 23, 0.07);
+
+    margin-bottom: 100px;
+}
+
+.simulator-left {
+    padding: 55px;
+}
+
+.section-label {
+    color: var(--gray);
+
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.8px;
+}
+
+.simulator-left h2 {
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: 42px;
+    letter-spacing: -2px;
+
+    margin: 15px 0 10px;
+}
+
+.simulator-description {
+    color: var(--gray);
+
+    max-width: 520px;
+
+    font-size: 14px;
+    line-height: 1.7;
+
+    margin-bottom: 45px;
+}
+
+
+/* =========================
+   SCENARIO FIELD
+========================= */
+
+.scenario-field label {
+    display: block;
+
+    font-size: 13px;
+    font-weight: 700;
+
+    margin-bottom: 10px;
+}
+
+.input-wrapper {
+    display: flex;
+    align-items: center;
+
+    width: 100%;
+
+    border: 1px solid var(--border);
+    background: var(--cream);
+
+    padding: 0 18px;
+}
+
+.input-wrapper span {
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.input-wrapper input {
+    width: 100%;
+
+    border: none;
+    outline: none;
+    background: transparent;
+
+    padding: 18px 10px;
+
+    font-family: "DM Sans", sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+
+    color: var(--black);
+}
+
+.range-row {
+    display: flex;
+    justify-content: space-between;
+
+    margin: 10px 0 5px;
+
+    color: var(--gray);
+
+    font-size: 11px;
+}
+
+#incomeRange {
+    width: 100%;
+
+    accent-color: var(--orange);
+
+    cursor: pointer;
+}
+
+
+/* =========================
+   BUTTON
+========================= */
+
+#simulateBtn {
+    margin-top: 35px;
+
+    padding: 16px 25px;
+
+    border: none;
+
+    background: var(--black);
+    color: white;
+
+    font-family: "DM Sans", sans-serif;
+    font-size: 13px;
+    font-weight: 800;
+
+    cursor: pointer;
+
+    transition: 0.2s ease;
+}
+
+#simulateBtn:hover {
+    background: var(--orange);
+    transform: translateY(-2px);
+}
+
+
+/* =========================
+   RESULT PANEL
+========================= */
+
+.simulator-result {
+    background: var(--black);
+    color: var(--white);
+
+    padding: 55px;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+
+    position: relative;
+    overflow: hidden;
+}
+
+.simulator-result::after {
+    content: "";
+
+    position: absolute;
+
+    width: 220px;
+    height: 220px;
+
+    border: 35px solid rgba(184, 223, 53, 0.12);
+
+    border-radius: 50%;
+
+    right: -100px;
+    top: -90px;
+}
+
+.result-label {
+    color: var(--lime);
+
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 2px;
+
+    margin-bottom: 20px;
+}
+
+.match-change {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+
+    margin-bottom: 25px;
+}
+
+.match-change strong {
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: 62px;
+    line-height: 1;
+
+    letter-spacing: -3px;
+}
+
+.match-change strong:last-child {
+    color: var(--lime);
+}
+
+.match-change span {
+    color: #77736c;
+    font-size: 28px;
+}
+
+#resultText {
+    color: #aaa7a0;
+
+    font-size: 14px;
+    line-height: 1.7;
+
+    max-width: 320px;
+}
+
+.result-status {
+    display: inline-block;
+
+    width: fit-content;
+
+    margin-top: 30px;
+    padding: 8px 13px;
+
+    background: #292929;
+    color: var(--lime);
+
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+
+/* =========================
+   EXPLANATION
+========================= */
+
+.explanation {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+
+    gap: 80px;
+
+    margin-bottom: 65px;
+}
+
+.explanation h2 {
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: 45px;
+    line-height: 1.05;
+
+    letter-spacing: -2px;
+}
+
+.explanation-text {
+    padding-top: 30px;
+}
+
+.explanation-text p {
+    color: var(--gray);
+
+    font-size: 15px;
+    line-height: 1.8;
+
+    margin-bottom: 22px;
+}
+
+
+/* =========================
+   NOTICE
+========================= */
+
+.notice {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+
+    padding: 22px 25px;
+
+    background: var(--cream-dark);
+
+    border-left: 4px solid var(--lime);
+}
+
+.notice span {
+    font-size: 20px;
+    color: var(--orange);
+}
+
+.notice p {
+    color: var(--gray);
+
+    font-size: 12px;
+}
+
+
+/* =========================
+   RESPONSIVE
+========================= */
+
+@media (max-width: 850px) {
+
+    .simulator {
+        grid-template-columns: 1fr;
+    }
+
+    .simulator-result {
+        min-height: 350px;
+    }
+
+    .explanation {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+
+    .explanation-text {
+        padding-top: 0;
+    }
+}
+
+
+@media (max-width: 600px) {
+
+    .navbar {
+        height: 70px;
+        padding: 0 5%;
+    }
+
+    .brand {
+        font-size: 18px;
+    }
+
+    .whatif-page {
+        width: 90%;
+        padding-top: 60px;
+    }
+
+    .whatif-intro h1 {
+        letter-spacing: -2.5px;
+    }
+
+    .simulator-left,
+    .simulator-result {
+        padding: 30px;
+    }
+
+    .simulator-left h2 {
+        font-size: 34px;
+    }
+
+    .match-change strong {
+        font-size: 50px;
+    }
+
+    .explanation h2 {
+        font-size: 36px;
+    }
+}

@@ -1,0 +1,699 @@
+/* =========================
+   SAKSHAM AI — NEAR MISS
+========================= */
+
+:root {
+    --cream: #f7f3eb;
+    --cream-dark: #eee8dc;
+    --white: #fffdf8;
+    --black: #171717;
+    --gray: #68655f;
+    --orange: #ff633d;
+    --orange-dark: #e94d2c;
+    --lime: #b8df35;
+    --border: #ded8cc;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: "DM Sans", sans-serif;
+    background: var(--cream);
+    color: var(--black);
+    line-height: 1.6;
+}
+
+
+/* =========================
+   NAVBAR
+========================= */
+
+.navbar {
+    height: 82px;
+    padding: 0 6%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    border-bottom: 1px solid var(--border);
+    background: rgba(247, 243, 235, 0.94);
+
+    position: sticky;
+    top: 0;
+    z-index: 10;
+
+    backdrop-filter: blur(12px);
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    color: var(--black);
+    text-decoration: none;
+
+    font-family: "Plus Jakarta Sans", sans-serif;
+    font-size: 21px;
+    font-weight: 800;
+}
+
+.brand span {
+    color: var(--orange);
+    font-size: 27px;
+}
+
+.back-link {
+    color: var(--gray);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 600;
+
+    transition: 0.2s ease;
+}
+
+.back-link:hover {
+    color: var(--orange);
+}
+
+
+/* =========================
+   MAIN
+========================= */
+
+.near-page {
+    width: min(1180px, 90%);
+    margin: auto;
+    padding: 90px 0 100px;
+}
+
+
+/* =========================
+   INTRO
+========================= */
+
+.near-intro {
+    max-width: 720px;
+    margin-bottom: 55px;
+}
+
+.eyebrow {
+    display: inline-block;
+
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 2px;
+
+    color: var(--orange);
+    margin-bottom: 18px;
+}
+
+.near-intro h1 {
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: clamp(48px, 7vw, 82px);
+    line-height: 0.98;
+    letter-spacing: -4px;
+
+    margin-bottom: 25px;
+}
+
+.near-intro p {
+    max-width: 590px;
+
+    color: var(--gray);
+    font-size: 18px;
+    line-height: 1.7;
+}
+
+
+/* =========================
+   FEATURED CARD
+========================= */
+
+.near-card {
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr;
+
+    min-height: 470px;
+
+    background: var(--white);
+    border: 1px solid var(--border);
+
+    margin-bottom: 110px;
+
+    box-shadow: 0 20px 55px rgba(23, 23, 23, 0.07);
+}
+
+.near-card-main {
+    padding: 55px;
+}
+
+.scheme-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+
+    margin-bottom: 32px;
+}
+
+.scheme-type {
+    background: var(--black);
+    color: var(--white);
+
+    padding: 8px 13px;
+
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+.near-pill {
+    background: #f0f0e1;
+    color: #596300;
+
+    padding: 8px 13px;
+
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+.near-card h2 {
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: clamp(38px, 4vw, 58px);
+    line-height: 1.05;
+    letter-spacing: -2.5px;
+
+    max-width: 650px;
+    margin-bottom: 22px;
+}
+
+.scheme-description {
+    max-width: 590px;
+
+    color: var(--gray);
+    font-size: 16px;
+    line-height: 1.7;
+}
+
+
+/* =========================
+   SCORE
+========================= */
+
+.score-row {
+    display: flex;
+    align-items: center;
+    gap: 25px;
+
+    margin-top: 55px;
+}
+
+.score-number {
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: 72px;
+    line-height: 1;
+
+    font-weight: 800;
+    letter-spacing: -4px;
+
+    color: var(--orange);
+}
+
+.score-number span {
+    font-size: 30px;
+    letter-spacing: -1px;
+}
+
+.score-row strong {
+    font-size: 15px;
+}
+
+.score-row p {
+    color: var(--gray);
+    font-size: 13px;
+
+    margin-top: 4px;
+}
+
+
+/* =========================
+   RIGHT SIDE
+========================= */
+
+.near-card-side {
+    background: var(--black);
+    color: var(--white);
+
+    padding: 55px;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.side-label {
+    color: var(--lime);
+
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 2px;
+
+    margin-bottom: 28px;
+}
+
+.reason {
+    display: flex;
+    gap: 18px;
+
+    padding-bottom: 30px;
+
+    border-bottom: 1px solid #3a3a3a;
+}
+
+.reason-icon {
+    width: 34px;
+    height: 34px;
+
+    flex-shrink: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 50%;
+
+    background: var(--orange);
+    color: white;
+
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.reason strong {
+    font-size: 16px;
+}
+
+.reason p {
+    color: #aaa7a0;
+
+    font-size: 13px;
+    line-height: 1.6;
+
+    margin-top: 6px;
+}
+
+.change-box {
+    margin-top: 30px;
+
+    padding: 25px;
+
+    background: #242424;
+
+    border-left: 4px solid var(--lime);
+}
+
+.change-box span {
+    display: block;
+
+    color: var(--lime);
+
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+
+    margin-bottom: 12px;
+}
+
+.change-box strong {
+    display: block;
+
+    font-size: 15px;
+    line-height: 1.5;
+
+    margin-bottom: 10px;
+}
+
+.change-box p {
+    color: #aaa7a0;
+
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+
+/* =========================
+   OTHER MATCHES
+========================= */
+
+.other-matches {
+    margin-bottom: 100px;
+}
+
+.section-heading {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+
+    gap: 40px;
+
+    margin-bottom: 35px;
+}
+
+.section-heading h2 {
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: 45px;
+    line-height: 1;
+
+    letter-spacing: -2px;
+}
+
+.section-heading > p {
+    max-width: 370px;
+
+    color: var(--gray);
+    font-size: 14px;
+}
+
+
+/* =========================
+   NEAR GRID
+========================= */
+
+.near-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+
+    gap: 18px;
+}
+
+.small-near-card {
+    background: var(--white);
+
+    border: 1px solid var(--border);
+
+    padding: 30px;
+
+    min-height: 300px;
+
+    transition:
+        transform 0.25s ease,
+        box-shadow 0.25s ease;
+}
+
+.small-near-card:hover {
+    transform: translateY(-6px);
+
+    box-shadow: 0 18px 35px rgba(23, 23, 23, 0.08);
+}
+
+.small-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    margin-bottom: 35px;
+}
+
+.small-card-top span {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+
+    color: var(--gray);
+}
+
+.small-card-top strong {
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: 22px;
+
+    color: var(--orange);
+}
+
+.small-near-card h3 {
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: 21px;
+    line-height: 1.2;
+
+    margin-bottom: 15px;
+}
+
+.small-near-card p {
+    color: var(--gray);
+
+    font-size: 13px;
+    line-height: 1.6;
+
+    margin-bottom: 25px;
+}
+
+.small-near-card button {
+    border: none;
+    background: none;
+
+    color: var(--black);
+
+    font-family: "DM Sans", sans-serif;
+    font-size: 12px;
+    font-weight: 800;
+
+    cursor: pointer;
+
+    transition: 0.2s ease;
+}
+
+.small-near-card button:hover {
+    color: var(--orange);
+}
+
+
+/* =========================
+   DARK CARD
+========================= */
+
+.dark-card {
+    background: var(--black);
+    color: var(--white);
+
+    border-color: var(--black);
+}
+
+.dark-card .small-card-top span,
+.dark-card p {
+    color: #aaa7a0;
+}
+
+.dark-card button {
+    color: var(--lime);
+}
+
+.dark-card button:hover {
+    color: var(--orange);
+}
+
+
+/* =========================
+   CTA
+========================= */
+
+.profile-cta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    gap: 40px;
+
+    background: var(--orange);
+    color: white;
+
+    padding: 50px 55px;
+
+    position: relative;
+    overflow: hidden;
+}
+
+.profile-cta::after {
+    content: "";
+
+    position: absolute;
+
+    width: 190px;
+    height: 190px;
+
+    border-radius: 50%;
+
+    border: 35px solid rgba(255, 255, 255, 0.12);
+
+    right: -55px;
+    bottom: -90px;
+}
+
+.cta-mark {
+    font-size: 24px;
+}
+
+.profile-cta h2 {
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    font-size: 35px;
+    letter-spacing: -1.5px;
+
+    margin: 7px 0;
+}
+
+.profile-cta p {
+    max-width: 550px;
+
+    font-size: 14px;
+    line-height: 1.6;
+
+    opacity: 0.9;
+}
+
+.profile-cta a {
+    flex-shrink: 0;
+
+    background: var(--black);
+    color: white;
+
+    padding: 15px 22px;
+
+    text-decoration: none;
+
+    font-size: 12px;
+    font-weight: 800;
+
+    transition: 0.2s ease;
+}
+
+.profile-cta a:hover {
+    background: white;
+    color: var(--black);
+}
+
+
+/* =========================
+   FOOTER
+========================= */
+
+footer {
+    padding: 35px 6%;
+
+    border-top: 1px solid var(--border);
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    color: var(--gray);
+
+    font-size: 12px;
+}
+
+footer span {
+    color: var(--black);
+    font-weight: 800;
+}
+
+
+/* =========================
+   RESPONSIVE
+========================= */
+
+@media (max-width: 900px) {
+
+    .near-card {
+        grid-template-columns: 1fr;
+    }
+
+    .near-card-side {
+        min-height: 380px;
+    }
+
+    .near-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .section-heading {
+        align-items: start;
+        flex-direction: column;
+    }
+
+    .profile-cta {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+
+@media (max-width: 600px) {
+
+    .navbar {
+        height: 70px;
+        padding: 0 5%;
+    }
+
+    .brand {
+        font-size: 18px;
+    }
+
+    .near-page {
+        width: 90%;
+        padding-top: 60px;
+    }
+
+    .near-intro h1 {
+        letter-spacing: -2.5px;
+    }
+
+    .near-card-main,
+    .near-card-side {
+        padding: 30px;
+    }
+
+    .near-card h2 {
+        font-size: 36px;
+    }
+
+    .score-row {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .score-number {
+        font-size: 60px;
+    }
+
+    .section-heading h2 {
+        font-size: 36px;
+    }
+
+    .profile-cta {
+        padding: 35px 30px;
+    }
+
+    .profile-cta h2 {
+        font-size: 28px;
+    }
+
+    footer {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+}
