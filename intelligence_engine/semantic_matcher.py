@@ -24,7 +24,7 @@ deterministic fake defined in the test module.
 import math
 from abc import ABC, abstractmethod
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from intelligence_engine.schemas import Scheme, UserProfile
 
@@ -54,7 +54,10 @@ class SemanticScore(BaseModel):
 
     Pydantic model so scores crossing the future Intelligence API
     boundary serialize cleanly via model_dump()/model_dump_json().
+    Non-finite floats are rejected like all intelligence contracts.
     """
+
+    model_config = ConfigDict(allow_inf_nan=False)
 
     score: float = Field()
     cosine: float = Field()

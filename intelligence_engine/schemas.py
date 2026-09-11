@@ -14,7 +14,7 @@ and no LLM SDK code belong here.
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from intelligence_engine.need_vocabulary import normalize_need_type
 from intelligence_engine.profile_vocabulary import (
@@ -23,7 +23,18 @@ from intelligence_engine.profile_vocabulary import (
 )
 
 
-class UserProfile(BaseModel):
+class _FiniteModel(BaseModel):
+    """Contract base rejecting non-finite floats (inf/nan) at validation.
+
+    Money, scores, and differences must be real numbers; infinities
+    previously passed ge=0 checks and flowed into deterministic
+    arithmetic. All intelligence result/input models share this base.
+    """
+
+    model_config = ConfigDict(allow_inf_nan=False)
+
+
+class UserProfile(_FiniteModel):
     """Validated user profile. Every field is optional (None = not provided)."""
 
     age: Optional[int] = Field(default=None, ge=0, le=120)
@@ -79,7 +90,7 @@ NeedPriority = Literal["high", "medium", "low"]
 AmountPeriod = Literal["one_time", "monthly", "annual", "unknown"]
 
 
-class SchemeSupport(BaseModel):
+class SchemeSupport(_FiniteModel):
     """One verified structured support a scheme offers (never inferred).
 
     support_type: Financial/support kind; loan ≠ grant ≠ subsidy.
@@ -115,7 +126,7 @@ DocumentState = Literal["available", "missing", "unknown"]
 ReadinessStatus = Literal["ready", "not_ready", "needs_information"]
 
 
-class ApplicationStep(BaseModel):
+class ApplicationStep(_FiniteModel):
     """One explicitly structured pathway step (never invented).
 
     Steps execute in list order as provided by verified scheme data.
@@ -126,7 +137,7 @@ class ApplicationStep(BaseModel):
     detail: Optional[str] = Field(default=None)
 
 
-class ChannelInfo(BaseModel):
+class ChannelInfo(_FiniteModel):
     """One explicitly structured application channel (info only, never a recommendation)."""
 
     name: str = Field(min_length=1)
@@ -135,7 +146,7 @@ class ChannelInfo(BaseModel):
     link: Optional[str] = Field(default=None)
 
 
-class DocumentCheck(BaseModel):
+class DocumentCheck(_FiniteModel):
     """One required document with its conservative status.
 
     unknown means the system does not know possession — never treated
@@ -146,7 +157,7 @@ class DocumentCheck(BaseModel):
     status: DocumentState = Field()
 
 
-class PathwayResult(BaseModel):
+class PathwayResult(_FiniteModel):
     """Actionable pathway: readiness, documents, steps, channels, next actions.
 
     ready means documentation is complete per known data — never a
@@ -162,7 +173,7 @@ class PathwayResult(BaseModel):
     reasons: list[str] = Field(default_factory=list)
 
 
-class Scheme(BaseModel):
+class Scheme(_FiniteModel):
     """Internal scheme view mapped from PostgreSQL schemes + eligibility_criteria.
 
     AUTHORITY RULE: eligibility_rules (states, categories, ...) are the SOLE
@@ -199,7 +210,7 @@ class Scheme(BaseModel):
 EligibilityStatus = Literal["eligible", "not_eligible", "needs_information"]
 
 
-class EligibilityResult(BaseModel):
+class EligibilityResult(_FiniteModel):
     """Deterministic eligibility decision with human-readable reasons.
 
     Use the explicit status field to distinguish a known failure from
@@ -213,7 +224,7 @@ class EligibilityResult(BaseModel):
     missing_information: list[str] = Field(default_factory=list)
 
 
-class MatchResult(BaseModel):
+class MatchResult(_FiniteModel):
     """Ranked match with a validated 0-100 score.
 
     deterministic_score/semantic_score preserve the hybrid components
@@ -229,7 +240,7 @@ class MatchResult(BaseModel):
     semantic_score: Optional[float] = Field(default=None, ge=0, le=100)
 
 
-class PipelineResult(BaseModel):
+class PipelineResult(_FiniteModel):
     """Final structured output combining profile, eligibility, and ranking."""
 
     profile: UserProfile = Field()
@@ -237,7 +248,7 @@ class PipelineResult(BaseModel):
     ranked_matches: list[MatchResult] = Field(default_factory=list)
 
 
-class FailedCriterion(BaseModel):
+class FailedCriterion(_FiniteModel):
     """One failed mandatory criterion, structured for analysis and What-If reuse.
 
     criterion: UserProfile field name (e.g. "annual_family_income").
@@ -254,7 +265,7 @@ class FailedCriterion(BaseModel):
     difference: Optional[float] = Field(default=None)
 
 
-class NearMissResult(BaseModel):
+class NearMissResult(_FiniteModel):
     """Analysis of how close a not_eligible outcome is (never overrides it)."""
 
     scheme_id: str = Field()
@@ -265,7 +276,7 @@ class NearMissResult(BaseModel):
     reasons: list[str] = Field(default_factory=list)
 
 
-class SupportNeed(BaseModel):
+class SupportNeed(_FiniteModel):
     """One structured support need. Unknown amounts/periods stay unknown.
 
     need_type: Canonical need category when recognized, otherwise the
@@ -293,7 +304,7 @@ class SupportNeed(BaseModel):
         return canonical
 
 
-class NeedAnalysisResult(BaseModel):
+class NeedAnalysisResult(_FiniteModel):
     """Structured understanding of what the user wants to achieve and need.
 
     business_goal: The user's goal in their own terms (None if unstated).
@@ -318,7 +329,7 @@ class NeedAnalysisResult(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
-class SupportMapping(BaseModel):
+class SupportMapping(_FiniteModel):
     """One need mapped to one verified scheme support option.
 
     eligibility_status: Copied from EligibilityResult ("unknown" when no
@@ -340,7 +351,7 @@ class SupportMapping(BaseModel):
     reasons: list[str] = Field(default_factory=list)
 
 
-class NeedPlan(BaseModel):
+class NeedPlan(_FiniteModel):
     """Plan for one need across candidate supports (never summed across schemes).
 
     best_known_coverage: Highest single-scheme coverage; schemes are not
@@ -356,7 +367,7 @@ class NeedPlan(BaseModel):
     reasons: list[str] = Field(default_factory=list)
 
 
-class SupportPlan(BaseModel):
+class SupportPlan(_FiniteModel):
     """Structured support plan for frontend/API/finance/pathway use later.
 
     convergence_unknown: Always True until structured convergence data
@@ -375,7 +386,7 @@ class SupportPlan(BaseModel):
     next_actions: list[str] = Field(default_factory=list)
 
 
-class WhatIfChange(BaseModel):
+class WhatIfChange(_FiniteModel):
     """One requested hypothetical edit: field plus its hypothetical value.
 
     hypothetical_value None means "what if this were unknown".
@@ -385,7 +396,7 @@ class WhatIfChange(BaseModel):
     hypothetical_value: Optional[Any] = Field(default=None)
 
 
-class AppliedChange(BaseModel):
+class AppliedChange(_FiniteModel):
     """A change with the current value attached for transparent comparison."""
 
     field: str = Field()
@@ -393,7 +404,7 @@ class AppliedChange(BaseModel):
     hypothetical_value: Optional[Any] = Field(default=None)
 
 
-class WhatIfResult(BaseModel):
+class WhatIfResult(_FiniteModel):
     """Structured current-vs-hypothetical eligibility comparison.
 
     changed_criteria: Eligibility dimensions whose outcome status differs.
@@ -413,7 +424,7 @@ class WhatIfResult(BaseModel):
     reasons: list[str] = Field(default_factory=list)
 
 
-class FinancialOption(BaseModel):
+class FinancialOption(_FiniteModel):
     """One explicitly known funding option (never inferred).
 
     amount None means unknown (never treated as zero).
@@ -424,7 +435,7 @@ class FinancialOption(BaseModel):
     amount: Optional[float] = Field(default=None, ge=0)
 
 
-class LoanTerms(BaseModel):
+class LoanTerms(_FiniteModel):
     """Explicit loan inputs. All three are required; nothing is assumed."""
 
     principal: float = Field(gt=0)
@@ -432,7 +443,7 @@ class LoanTerms(BaseModel):
     tenure_months: int = Field(ge=1)
 
 
-class LoanResult(BaseModel):
+class LoanResult(_FiniteModel):
     """Standard amortizing-loan outputs, rounded to 2 decimals.
 
     No affordability claim: affordability needs income/expense data plus
@@ -444,7 +455,7 @@ class LoanResult(BaseModel):
     total_interest: float = Field(ge=0)
 
 
-class CoverageResult(BaseModel):
+class CoverageResult(_FiniteModel):
     """Deterministic requirement-vs-support arithmetic.
 
     covered: Best single known option capped at required (never summed
@@ -464,7 +475,7 @@ class CoverageResult(BaseModel):
     reasons: list[str] = Field(default_factory=list)
 
 
-class OptionComparison(BaseModel):
+class OptionComparison(_FiniteModel):
     """Comparison on explicitly known amounts only.
 
     ranked_labels: Labels with known amounts, highest first (ties by
@@ -481,7 +492,7 @@ class OptionComparison(BaseModel):
 TraceItemKind = Literal["decision", "evidence", "calculation", "uncertainty", "action"]
 
 
-class ExplanationItem(BaseModel):
+class ExplanationItem(_FiniteModel):
     """One trace line with a fixed role and its source engine.
 
     source names the authoritative engine (e.g. "EligibilityEngine").
@@ -493,7 +504,7 @@ class ExplanationItem(BaseModel):
     source: str = Field(min_length=1)
 
 
-class DecisionTrace(BaseModel):
+class DecisionTrace(_FiniteModel):
     """Structured explanation of one already-made decision.
 
     Contains exactly one "decision" item restating the verdict; all
@@ -505,7 +516,7 @@ class DecisionTrace(BaseModel):
     items: list[ExplanationItem] = Field(default_factory=list)
 
 
-class GeneratedExplanation(BaseModel):
+class GeneratedExplanation(_FiniteModel):
     """LLM-rendered trace wording with its grounding verdict.
 
     grounded True means the draft passed all checks; otherwise text is
@@ -520,7 +531,7 @@ class GeneratedExplanation(BaseModel):
     issues: list[str] = Field(default_factory=list)
 
 
-class SchemeInsights(BaseModel):
+class SchemeInsights(_FiniteModel):
     """All per-scheme intelligence outputs, keyed by one scheme_id.
 
     Each slot reuses its authoritative result schema unchanged; None
@@ -537,7 +548,7 @@ class SchemeInsights(BaseModel):
     explanation: Optional[GeneratedExplanation] = Field(default=None)
 
 
-class IntelligenceResult(BaseModel):
+class IntelligenceResult(_FiniteModel):
     """Product-level intelligence container (orchestration contract only).
 
     Sections mirror the product flow: profile understanding, needs,
@@ -589,7 +600,7 @@ class IntelligenceResult(BaseModel):
         )
 
 
-class TranscriptionResult(BaseModel):
+class TranscriptionResult(_FiniteModel):
     """Validated speech-to-text output (wording preserved verbatim).
 
     text: Transcript with whitespace collapsed; empty transcripts are
@@ -612,7 +623,7 @@ class TranscriptionResult(BaseModel):
         return cleaned
 
 
-class ClarificationQuestion(BaseModel):
+class ClarificationQuestion(_FiniteModel):
     """One deterministic question grounded in a missing field.
 
     field: machine-usable reference (UserProfile field name, or
@@ -624,7 +635,7 @@ class ClarificationQuestion(BaseModel):
     question: str = Field(min_length=1)
 
 
-class ClarificationRequest(BaseModel):
+class ClarificationRequest(_FiniteModel):
     """Stateless clarification derived from structured uncertainty.
 
     missing_fields: Deduplicated missing references in first-seen order.

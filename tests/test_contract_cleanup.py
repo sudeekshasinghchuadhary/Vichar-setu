@@ -7,6 +7,7 @@ estimated_project_cost vs total_requested distinction.
 
 from dataclasses import is_dataclass
 
+import pytest
 from pydantic import BaseModel
 
 from intelligence_engine.eligibility_engine import (
@@ -145,3 +146,33 @@ def test_cost_estimate_distinct_from_analyzed_total() -> None:
     assert result.total_requested == 500000
     assert result.total_requested != profile.estimated_project_cost
     assert profile.estimated_project_cost == 999999.0
+
+
+def test_non_finite_floats_rejected() -> None:
+    """inf/nan never enter money, score, or difference fields."""
+    import math
+
+    from pydantic import ValidationError
+
+    from intelligence_engine.schemas import (
+        CoverageResult,
+        FailedCriterion,
+        FinancialOption,
+        MatchResult,
+        SupportNeed,
+        UserProfile,
+    )
+    from intelligence_engine.semantic_matcher import SemanticScore
+
+    for make in (
+        lambda v: UserProfile(annual_family_income=v),
+        lambda v: SupportNeed(need_type="machinery", amount=v),
+        lambda v: FinancialOption(label="s", amount=v),
+        lambda v: CoverageResult(required=800000, covered=v),
+        lambda v: MatchResult(scheme_id="s", score=v, rank=1),
+        lambda v: FailedCriterion(criterion="age", difference=v),
+        lambda v: SemanticScore(score=v, cosine=0.0, user_text="a", scheme_text="b"),
+    ):
+        for bad in (math.inf, -math.inf, math.nan):
+            with pytest.raises(ValidationError):
+                make(bad)
