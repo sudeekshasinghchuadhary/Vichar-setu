@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from intelligence_engine.eligibility_engine import EligibilityEngineError
+from intelligence_engine.clarification_generator import ClarificationGenerator
 from intelligence_engine.explanation_generator import ExplanationGenerator
 from intelligence_engine.llm_client import LLMClient, LLMExplanationProvider, NeedExtractor
 from intelligence_engine.orchestrator import IntelligenceOrchestrator
@@ -433,3 +434,137 @@ def test_structured_profile_immutability() -> None:
     _orchestrator().run_from_profile(profile, [_open_scheme()], needs)
     assert profile.model_dump() == before[0]
     assert needs.model_dump() == before[1]
+
+
+def _sparse_orchestrator(**overrides):
+    """Orchestrator whose profile lacks occupation."""
+    from intelligence_engine.profile_processor import ProfileProcessor as PP
+
+    class SparseLLM(FakeLLM):
+        def extract_profile_data(self, user_text):
+            """Profile missing occupation."""
+            data = super().extract_profile_data(user_text)
+            data.pop("occupation")
+            return data
+
+    parts = {"profile_processor": PP(SparseLLM())}
+    parts.update(overrides)
+    return _orchestrator(**parts)
+
+
+def test_clarification_populated_on_missing_info() -> None:
+    """A: unresolved eligibility yields questions plus the stage marker."""
+    result = _sparse_orchestrator().run("tailoring business", [_open_scheme()])
+    assert result.clarification is not None
+    assert result.clarification.missing_fields == ["occupation"]
+    assert result.clarification.questions[0].field == "occupation"
+    assert "clarification" in result.stages_completed
+
+
+def test_clarification_absent_on_complete_run() -> None:
+    """B: complete runs carry None and no stage marker."""
+    result = _orchestrator().run("tailoring business", [_open_scheme(), _strict_scheme()])
+    assert result.clarification is None
+    assert "clarification" not in result.stages_completed
+    assert result.ranked_matches != []
+
+
+def test_clarification_deduplicated_across_schemes() -> None:
+    """C: two schemes missing occupation ask exactly once."""
+    twin = _open_scheme().model_copy(update={"id": "scheme-twin", "name": "Twin"})
+    result = _sparse_orchestrator().run("tailoring business", [_open_scheme(), twin])
+    assert result.clarification is not None
+    assert result.clarification.missing_fields == ["occupation"]
+    assert len(result.clarification.questions) == 1
+
+
+def test_clarification_ignores_failed_schemes() -> None:
+    """D: only actionable (needs_information) gaps are asked about."""
+    result = _sparse_orchestrator().run("tailoring business", [_open_scheme(), _strict_scheme()])
+    assert result.clarification is not None
+    assert result.clarification.missing_fields == ["occupation"]
+    by_id = {s.scheme_id: s for s in result.schemes}
+    assert by_id["scheme-strict"].eligibility.status == "not_eligible"
+
+
+def test_clarification_partial_result_has_no_nesting() -> None:
+    """E: current_partial_result.clarification is always None."""
+    result = _sparse_orchestrator().run("tailoring business", [_open_scheme()])
+    partial = result.clarification.current_partial_result
+    assert partial.clarification is None
+    assert "clarification" not in partial.stages_completed
+
+
+class _EchoWording:
+    """Fake wording provider prefixing every question."""
+
+    def __init__(self):
+        """Record prompts."""
+        self.prompts = []
+
+    def rewrite_questions(self, prompt):
+        """Return Hindi-marked rewordings by parsing the prompt lines."""
+        self.prompts.append(prompt)
+        items = []
+        for line in prompt.splitlines():
+            if line.startswith("- ["):
+                field = line[3:].split("]")[0]
+                items.append({"field": field, "question": f"HI ({field})?"})
+        return items
+
+
+def test_clarification_wording_enabled() -> None:
+    """F: wording changes text only; fields and order preserved."""
+    orch = _sparse_orchestrator(clarification_generator=ClarificationGenerator(_EchoWording()))
+    result = orch.run("tailoring business", [_open_scheme()])
+    assert result.clarification.questions[0].question == "HI (occupation)?"
+    assert result.clarification.missing_fields == ["occupation"]
+
+
+def test_clarification_wording_failure_falls_back() -> None:
+    """G: provider errors keep deterministic questions."""
+    orch = _sparse_orchestrator(clarification_generator=ClarificationGenerator(_ExplodingWording()))
+    result = orch.run("tailoring business", [_open_scheme()])
+    assert result.clarification.questions[0].question == "What is your occupation?"
+    assert "clarification" in result.stages_completed
+
+
+class _ExplodingWording:
+    """Wording provider that always fails."""
+
+    def rewrite_questions(self, prompt):
+        """Raise instead of wording."""
+        raise RuntimeError("boom")
+
+
+def test_run_from_profile_user_text_only_words() -> None:
+    """H: user_text reaches wording context; decisions identical either way."""
+    orch = _sparse_orchestrator(clarification_generator=ClarificationGenerator(_EchoWording()))
+    profile = _structured_profile().model_copy(update={"occupation": None})
+    schemes = [_open_scheme()]
+    plain = orch.run_from_profile(profile, schemes)
+    voiced = orch.run_from_profile(profile, schemes, user_text="meri umar 25 hai")
+    assert plain.schemes[0].eligibility == voiced.schemes[0].eligibility
+    assert plain.ranked_matches == voiced.ranked_matches
+    assert voiced.clarification.missing_fields == ["occupation"]
+
+
+def test_no_clarification_preserves_legacy_shape() -> None:
+    """I: clean runs look exactly as before (None + unmarked + ranked)."""
+    result = _orchestrator().run("tailoring business", [_open_scheme(), _strict_scheme()])
+    assert result.clarification is None
+    assert "clarification" not in result.stages_completed
+    assert [m.scheme_id for m in result.ranked_matches] == ["scheme-open"]
+    assert result.support_plan is not None
+
+
+def test_clarification_run_immutability() -> None:
+    """J: profile, schemes, and needs unchanged by clarification runs."""
+    profile = _structured_profile().model_copy(update={"occupation": None})
+    schemes = [_open_scheme(), _strict_scheme()]
+    needs = _structured_needs()
+    before = (profile.model_dump(), [s.model_dump() for s in schemes], needs.model_dump())
+    _orchestrator().run_from_profile(profile, schemes, needs)
+    assert profile.model_dump() == before[0]
+    assert [s.model_dump() for s in schemes] == before[1]
+    assert needs.model_dump() == before[2]

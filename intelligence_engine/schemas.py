@@ -555,6 +555,8 @@ class IntelligenceResult(BaseModel):
     What-If stays a separate on-demand operation (WhatIfResult) and is
     not embedded here. Loan/EMI comparisons remain standalone calls;
     coverage_results carries standalone coverage computations.
+    clarification holds a deterministic follow-up request when the run
+    left genuinely missing inputs, else None (never faked).
     """
 
     profile: Optional[UserProfile] = Field(default=None)
@@ -565,6 +567,7 @@ class IntelligenceResult(BaseModel):
     coverage_results: list[CoverageResult] = Field(default_factory=list)
     traces: list[DecisionTrace] = Field(default_factory=list)
     explanations: list[GeneratedExplanation] = Field(default_factory=list)
+    clarification: Optional["ClarificationRequest"] = Field(default=None)
     stages_completed: list[str] = Field(default_factory=list)
 
     @classmethod
@@ -634,3 +637,6 @@ class ClarificationRequest(BaseModel):
     missing_fields: list[str] = Field(default_factory=list)
     questions: list[ClarificationQuestion] = Field(default_factory=list)
     current_partial_result: IntelligenceResult = Field()
+
+
+IntelligenceResult.model_rebuild()

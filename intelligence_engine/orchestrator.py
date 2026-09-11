@@ -19,6 +19,7 @@ No database, FastAPI, HTTP, parallelism, or persisted state.
 
 from typing import Any
 
+from intelligence_engine.clarification import build_clarification
 from intelligence_engine.eligibility_engine import EligibilityEngine
 from intelligence_engine.explanation_engine import ExplanationEngine
 from intelligence_engine.explanation_generator import ExplanationGenerator
@@ -67,6 +68,7 @@ class IntelligenceOrchestrator:
         pathway_engine: ApplicationPathwayEngine | None = None,
         explanation_engine: ExplanationEngine | None = None,
         explanation_generator: ExplanationGenerator | None = None,
+        clarification_generator: Any = None,
     ) -> None:
         """Store injected components (defaults are real engines, never vendors).
 
@@ -92,6 +94,7 @@ class IntelligenceOrchestrator:
         self.pathway_engine = pathway_engine or ApplicationPathwayEngine()
         self.explanation_engine = explanation_engine or ExplanationEngine()
         self.explanation_generator = explanation_generator
+        self.clarification_generator = clarification_generator
 
     def run(
         self,
@@ -119,7 +122,7 @@ class IntelligenceOrchestrator:
             needs = self.need_analyzer.analyze(user_text)
             stages.append("needs")
 
-        return self._execute(profile, needs, schemes, document_availability, stages)
+        return self._execute(profile, needs, schemes, document_availability, stages, user_text)
 
     def run_from_profile(
         self,
@@ -127,6 +130,7 @@ class IntelligenceOrchestrator:
         schemes: list[Scheme],
         needs: NeedAnalysisResult | None = None,
         document_availability: dict[str, Any] | None = None,
+        user_text: str | None = None,
     ) -> IntelligenceResult:
         """Run the same downstream flow from an already-validated profile.
 
@@ -139,13 +143,17 @@ class IntelligenceOrchestrator:
                 needs raw text, which this path does not take).
             document_availability: Optional doc-name -> availability map
                 forwarded untouched to pathway planning.
+            user_text: Optional raw wording used ONLY as language/style
+                context for clarification wording. Never passed into
+                eligibility, matching, financial, support-planning,
+                pathway, or any other decision logic.
 
         Returns:
             IntelligenceResult with accurately recorded stages_completed
             ("profile" marked complete since a validated profile was
             supplied, not extracted).
         """
-        return self._execute(profile, needs, schemes, document_availability, ["profile"])
+        return self._execute(profile, needs, schemes, document_availability, ["profile"], user_text)
 
     def _execute(
         self,
@@ -154,6 +162,7 @@ class IntelligenceOrchestrator:
         schemes: list[Scheme],
         document_availability: dict[str, Any] | None,
         stages: list[str],
+        user_text: str | None = None,
     ) -> IntelligenceResult:
         """Shared downstream flow: eligibility -> result assembly."""
         eligibility = self.eligibility_engine.evaluate_many(profile, schemes)
@@ -224,7 +233,7 @@ class IntelligenceOrchestrator:
         if self.explanation_generator:
             stages.append("explanation")
 
-        return IntelligenceResult(
+        partial = IntelligenceResult(
             profile=profile,
             needs=needs,
             schemes=insights,
@@ -234,6 +243,28 @@ class IntelligenceOrchestrator:
             traces=global_traces,
             explanations=explanations,
             stages_completed=stages,
+        )
+        return self._attach_clarification(partial, user_text)
+
+    def _attach_clarification(
+        self, partial: IntelligenceResult, user_text: str | None
+    ) -> IntelligenceResult:
+        """Attach deterministic clarification (optionally worded) if needed.
+
+        Builds from the completed partial result, so
+        current_partial_result never contains a clarification field.
+        user_text reaches only the wording layer, never decision logic.
+        """
+        request = build_clarification(partial)
+        if request is None:
+            return partial
+        if self.clarification_generator is not None:
+            request = self.clarification_generator.generate(request, user_text=user_text)
+        return partial.model_copy(
+            update={
+                "clarification": request,
+                "stages_completed": [*partial.stages_completed, "clarification"],
+            }
         )
 
     def _rank(self, profile: Any, schemes: list[Scheme], eligibility: list[Any]) -> list[MatchResult]:
