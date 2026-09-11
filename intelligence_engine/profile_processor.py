@@ -73,6 +73,14 @@ def normalize_profile_data(data: dict[str, Any]) -> dict[str, Any]:
         normalized["social_category"] = normalize_social_category(
             normalized["social_category"]
         )
+    amount = normalized.get("annual_family_income")
+    if (
+        normalized.get("income_period") == "monthly"
+        and isinstance(amount, (int, float))
+        and not isinstance(amount, bool)
+    ):
+        normalized["annual_family_income"] = amount * 12
+        normalized["income_period"] = "annual"
     for key in ("gender", "district", "occupation", "purpose", "project_type", "education_level"):
         if key in normalized:
             normalized[key] = _clean_str(normalized[key])

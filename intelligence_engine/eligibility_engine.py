@@ -256,6 +256,21 @@ def evaluate_rule_outcomes(profile: UserProfile, rules: dict[str, Any]) -> list[
                     difference=None,
                 )
             )
+        elif profile.income_period != "annual":
+            outcomes.append(
+                RuleOutcome(
+                    dimension="annual_family_income",
+                    rule="max_annual_income",
+                    status="missing",
+                    reason=(
+                        f"Annual family income period is '{profile.income_period}': "
+                        "a comparable annual value is required to determine eligibility."
+                    ),
+                    user_value=profile.annual_family_income,
+                    required=f"<= {_format_money(rule)}",
+                    difference=None,
+                )
+            )
         elif profile.annual_family_income > rule:
             outcomes.append(
                 RuleOutcome(

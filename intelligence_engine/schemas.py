@@ -29,6 +29,17 @@ class UserProfile(BaseModel):
     district: Optional[str] = Field(default=None)
     occupation: Optional[str] = Field(default=None)
     annual_family_income: Optional[float] = Field(default=None, ge=0)
+    income_period: Literal["monthly", "annual", "unknown"] = Field(
+        default="annual",
+        description=(
+            "Period of annual_family_income. Default 'annual' covers legacy "
+            "structured data already annualized (fixtures/backend). Extractors "
+            "must write 'monthly' or 'unknown' explicitly; unknown speech must "
+            "never be stored as annual. Monthly values are annualized ×12 in "
+            "deterministic normalization; unknown periods cannot satisfy "
+            "annual-income rules."
+        ),
+    )
     purpose: Optional[str] = Field(default=None)
     project_type: Optional[str] = Field(default=None)
     estimated_project_cost: Optional[float] = Field(
