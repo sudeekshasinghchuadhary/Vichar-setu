@@ -12,6 +12,7 @@ from intelligence_engine.schemas import (
     ClarificationQuestion,
     ClarificationRequest,
     IntelligenceResult,
+    ValueConflict,
 )
 
 _FIELD_QUESTIONS: dict[str, str] = {
@@ -79,4 +80,55 @@ def build_clarification(result: IntelligenceResult) -> ClarificationRequest | No
         return None
     return ClarificationRequest(
         missing_fields=missing, questions=questions, current_partial_result=result
+    )
+
+
+_MONEY_FIELDS = ("annual_family_income", "estimated_project_cost")
+
+
+def _format_conflict_value(field: str, value: object) -> str:
+    """Deterministic display: money with rupee sign, wholes without decimals."""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, (int, float)):
+        text = str(int(value)) if float(value).is_integer() else str(value)
+        return f"₹{text}" if field in _MONEY_FIELDS else text
+    return str(value)
+
+
+def _conflict_label(field: str) -> str:
+    """Human label for profile fields and disputed need amounts."""
+    if field.startswith("needs:"):
+        parts = field.split(":", 2)
+        if len(parts) == 3:
+            return f"'{parts[1]}' support amount ({parts[2]})"
+    return field.replace("_", " ")
+
+
+def build_conflict_request(
+    conflicts: list[ValueConflict], partial: IntelligenceResult
+) -> ClarificationRequest:
+    """Build explicit conflict questions preserving both disputed values.
+
+    Each question names the field with the form value and the extracted
+    value and asks which is correct. No winner is picked here; the
+    backend resolves via resolve_conflicts() after the user confirms.
+    """
+    questions = [
+        ClarificationQuestion(
+            field=conflict.field,
+            question=(
+                f"You provided two different values for {_conflict_label(conflict.field)}: "
+                f"{_format_conflict_value(conflict.field, conflict.form_value)} (form) and "
+                f"{_format_conflict_value(conflict.field, conflict.extracted_value)} (text). "
+                "Which one is correct?"
+            ),
+        )
+        for conflict in conflicts
+    ]
+    return ClarificationRequest(
+        missing_fields=[],
+        questions=questions,
+        conflicts=list(conflicts),
+        current_partial_result=partial,
     )

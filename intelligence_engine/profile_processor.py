@@ -6,6 +6,7 @@ Missing information stays None. No facts are inferred.
 This module never decides eligibility or scores schemes.
 """
 
+import re
 from typing import Any, Optional
 
 from pydantic import ValidationError
@@ -32,6 +33,35 @@ def _clean_str(value: Any) -> Optional[str]:
     return cleaned if cleaned else None
 
 
+_AMOUNT_PATTERN = re.compile(
+    r"^\s*(?:\u20b9|Rs\.?|INR)?\s*([\d,]+(?:\.\d+)?)\s*(lakhs?|lacs?|crores?)?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _parse_amount(value: Any) -> Any:
+    """Parse conservative currency strings to numbers (no inference).
+
+    Handles optional ₹/Rs/INR symbols, Indian digit grouping, decimals,
+    and lakh/crore units. Anything else passes through untouched for
+    Pydantic to accept or reject; never guesses.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    match = _AMOUNT_PATTERN.match(value)
+    if match is None:
+        return value
+    number = float(match.group(1).replace(",", ""))
+    unit = (match.group(2) or "").lower()
+    if unit.startswith("lac") or unit.startswith("lakh"):
+        return number * 100000
+    if unit.startswith("crore"):
+        return number * 10000000
+    return number
+
+
 def normalize_profile_data(data: dict[str, Any]) -> dict[str, Any]:
     """Apply deterministic normalization to extracted fields (no inference)."""
     normalized: dict[str, Any] = dict(data)
@@ -41,6 +71,9 @@ def normalize_profile_data(data: dict[str, Any]) -> dict[str, Any]:
         normalized["social_category"] = normalize_social_category(
             normalized["social_category"]
         )
+    for key in ("annual_family_income", "estimated_project_cost"):
+        if key in normalized:
+            normalized[key] = _parse_amount(normalized[key])
     amount = normalized.get("annual_family_income")
     if (
         normalized.get("income_period") == "monthly"

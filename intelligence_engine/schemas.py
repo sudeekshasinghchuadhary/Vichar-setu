@@ -635,11 +635,26 @@ class ClarificationQuestion(_FiniteModel):
     question: str = Field(min_length=1)
 
 
+class ValueConflict(_FiniteModel):
+    """One disputed field with both sources preserved for resolution.
+
+    criterion-equivalent for What-If-style reuse: the backend asks the
+    user to confirm "form" or "extracted" (see resolve_conflicts), then
+    reruns with the confirmed canonical profile. Neither value is used
+    for decisions while disputed.
+    """
+
+    field: str = Field(min_length=1)
+    form_value: Optional[Any] = Field(default=None)
+    extracted_value: Optional[Any] = Field(default=None)
+
+
 class ClarificationRequest(_FiniteModel):
     """Stateless clarification derived from structured uncertainty.
 
     missing_fields: Deduplicated missing references in first-seen order.
     questions: One deterministic question per missing reference.
+    conflicts: Disputed form-vs-extracted values awaiting user confirmation.
     current_partial_result: The IntelligenceResult that produced them,
         unchanged — the backend re-invokes the pipeline after answers.
     Absent (None from the builder) when nothing is missing.
@@ -647,6 +662,7 @@ class ClarificationRequest(_FiniteModel):
 
     missing_fields: list[str] = Field(default_factory=list)
     questions: list[ClarificationQuestion] = Field(default_factory=list)
+    conflicts: list[ValueConflict] = Field(default_factory=list)
     current_partial_result: IntelligenceResult = Field()
 
 

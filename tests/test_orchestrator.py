@@ -17,6 +17,7 @@ from intelligence_engine.schemas import (
     IntelligenceResult,
     Scheme,
     SchemeSupport,
+    SupportNeed,
     UserProfile,
 )
 from intelligence_engine.semantic_matcher import EmbeddingProvider, SemanticMatcher
@@ -746,3 +747,616 @@ def test_text_answers_need_no_voice_state() -> None:
     text_result = _orchestrator().run_from_profile(profile, [_open_scheme()], _structured_needs())
     assert text_result.clarification is None
     assert "clarification" not in text_result.stages_completed
+
+
+def _hybrid_form(**overrides):
+    """Sparse form profile with overrides."""
+    data = {"state": "Uttar Pradesh"}
+    data.update(overrides)
+    return UserProfile(**data)
+
+
+def test_hybrid_form_only_input() -> None:
+    """Form alone flows through unchanged with needs skipped."""
+    from intelligence_engine.input_merger import merge_inputs
+
+    form = _hybrid_form(age=25)
+    profile, needs = merge_inputs(form)
+    assert profile.age == 25 and profile.state == "Uttar Pradesh"
+    assert needs is None
+    result = _orchestrator().run_hybrid(form, [_open_scheme()])
+    assert result.profile.state == "Uttar Pradesh"
+    assert result.support_plan is None
+
+
+def test_hybrid_text_only_input() -> None:
+    """Empty form plus text behaves like extraction alone."""
+    result = _orchestrator().run_hybrid(UserProfile(), [_open_scheme()], user_text="tailoring business")
+    assert result.profile.occupation == "Farmer"
+    assert result.schemes[0].eligibility.status == "eligible"
+
+
+def test_hybrid_complementary_fields() -> None:
+    """Form district plus text-extracted fields combine without loss."""
+    result = _orchestrator().run_hybrid(
+        _hybrid_form(district="Lucknow"), [_open_scheme()], user_text="tailoring business"
+    )
+    assert result.clarification is None
+    assert result.profile.district == "Lucknow"
+    assert result.profile.occupation == "Farmer"
+    assert result.profile.state == "Uttar Pradesh"
+    assert result.schemes[0].eligibility.status == "eligible"
+
+
+def test_merge_profiles_prefills_gaps() -> None:
+    """Low-level merge keeps form values; the orchestrator checks conflicts first."""
+    from intelligence_engine.input_merger import merge_profiles
+
+    merged = merge_profiles(_hybrid_form(age=30), _structured_profile())
+    assert merged.age == 30
+    assert merged.occupation == "Farmer"
+
+
+def test_hybrid_text_fills_missing_form_fields() -> None:
+    """Absent form fields take extracted values verbatim."""
+    from intelligence_engine.input_merger import merge_profiles
+
+    merged = merge_profiles(UserProfile(), _structured_profile())
+    assert merged == _structured_profile()
+
+
+def test_hybrid_multiple_needs_both_sources() -> None:
+    """Form training need plus extracted machinery need both survive."""
+    from intelligence_engine.input_merger import merge_needs
+    from intelligence_engine.schemas import SupportNeed
+
+    merged = merge_needs(
+        [SupportNeed(need_type="training")],
+        [SupportNeed(need_type="machinery", amount=500000, amount_period="one_time")],
+    )
+    assert [n.need_type for n in merged] == ["training", "machinery"]
+
+
+def test_hybrid_duplicate_needs_merged() -> None:
+    """Same need twice collapses per the existing duplicate contract."""
+    from intelligence_engine.input_merger import merge_needs
+    from intelligence_engine.schemas import SupportNeed
+
+    merged = merge_needs(
+        [SupportNeed(need_type="machinery", amount=500000, amount_period="one_time")],
+        [SupportNeed(need_type="machinery", amount=500000, amount_period="one_time")],
+    )
+    assert len(merged) == 1
+    assert merged[0].amount == 1000000
+
+
+def test_hybrid_missing_unknown_values() -> None:
+    """Unknowns stay unknown; no values invented in merging."""
+    from intelligence_engine.input_merger import merge_inputs
+
+    profile, needs = merge_inputs(UserProfile(), None, None, None)
+    assert profile == UserProfile()
+    assert needs is None
+    profile2, needs2 = merge_inputs(
+        UserProfile(), None, [SupportNeed(need_type="training")], None
+    )
+    assert needs2.needs[0].amount is None
+    assert needs2.total_requested is None
+
+
+def test_hybrid_immutability() -> None:
+    """Source profile, needs, and schemes unchanged by merging and runs."""
+    from intelligence_engine.schemas import SupportNeed
+
+    form = _hybrid_form(age=25)
+    form_needs = [SupportNeed(need_type="training")]
+    schemes = [_open_scheme()]
+    before = (form.model_dump(), [n.model_dump() for n in form_needs], [s.model_dump() for s in schemes])
+    _orchestrator().run_hybrid(form, schemes, user_text="tailoring business", form_needs=form_needs)
+    assert form.model_dump() == before[0]
+    assert [n.model_dump() for n in form_needs] == before[1]
+    assert [s.model_dump() for s in schemes] == before[2]
+
+
+def test_hybrid_matches_structured_path() -> None:
+    """Hybrid with complete form equals run_from_profile on that profile."""
+    form = _structured_profile()
+    hybrid = _orchestrator().run_hybrid(form, [_open_scheme(), _strict_scheme()], form_needs=[])
+    direct = _orchestrator().run_from_profile(form, [_open_scheme(), _strict_scheme()])
+    assert hybrid.profile == direct.profile
+    assert [s.eligibility.status for s in hybrid.schemes] == [s.eligibility.status for s in direct.schemes]
+    assert [m.scheme_id for m in hybrid.ranked_matches] == [m.scheme_id for m in direct.ranked_matches]
+
+
+def test_hybrid_rejects_audio_and_text_together() -> None:
+    """Ambiguous dual input raises instead of guessing precedence."""
+    with pytest.raises(ValueError, match="either audio or user_text"):
+        _orchestrator().run_hybrid(_hybrid_form(), [_open_scheme()], user_text="hi", audio=b"x")
+
+
+def test_hybrid_audio_uses_text_pipeline() -> None:
+    """Voice plus form merges the transcript extraction with form data."""
+    orch = _voice_orchestrator()
+    result = orch.run_hybrid(_hybrid_form(district="Lucknow"), [_open_scheme()], audio=b"bytes")
+    assert result.profile.district == "Lucknow"
+    assert result.profile.occupation == "Farmer"
+    assert result.schemes[0].eligibility.status == "eligible"
+
+
+def test_legacy_flows_unchanged() -> None:
+    """run/run_from_profile/run_from_audio behave exactly as before."""
+    orch = _orchestrator()
+    schemes = [_open_scheme(), _strict_scheme()]
+    text_result = orch.run("tailoring business", schemes)
+    assert text_result.stages_completed == [
+        "profile", "needs", "eligibility", "matching", "near_miss",
+        "support", "financial", "pathway", "traces",
+    ]
+    assert _orchestrator().run_from_profile(_structured_profile(), schemes).profile.age == 25
+    assert _voice_orchestrator().run_from_audio(b"x", schemes).profile.age == 25
+
+
+def _conflict_form(**overrides):
+    """Form profile differing from FakeLLM extraction (age 25)."""
+    data = {"age": 32}
+    data.update(overrides)
+    return UserProfile(**data)
+
+
+def test_identical_values_no_conflict() -> None:
+    """Same values in both sources merge normally with no clarification."""
+    from intelligence_engine.input_merger import detect_conflicts
+
+    profile = UserProfile(age=25, occupation="Farmer")
+    assert detect_conflicts(profile, UserProfile(age=25, occupation="Farmer")) == []
+    result = _orchestrator().run_hybrid(UserProfile(), [_open_scheme()], user_text="tailoring business")
+    assert result.clarification is None
+    assert "clarification" not in result.stages_completed
+
+
+def test_complementary_values_normal_merge() -> None:
+    """Form state plus extracted everything else merges with no dispute."""
+    result = _orchestrator().run_hybrid(
+        UserProfile(state="Uttar Pradesh"), [_open_scheme()], user_text="tailoring business"
+    )
+    assert result.clarification is None
+    assert result.profile.state == "Uttar Pradesh"
+    assert result.profile.occupation == "Farmer"
+    assert result.schemes[0].eligibility.status == "eligible"
+
+
+def test_conflicting_numeric_values_clarify() -> None:
+    """Form 32/4L vs extracted 25/1.8L asks instead of deciding."""
+    form = _conflict_form(annual_family_income=400000.0)
+    result = _orchestrator().run_hybrid(form, [_open_scheme(), _strict_scheme()], user_text="tailoring business")
+    assert result.clarification is not None
+    assert [q.field for q in result.clarification.questions] == ["age", "annual_family_income"]
+    assert "400000" in result.clarification.questions[1].question
+    assert "180000" in result.clarification.questions[1].question
+    assert result.ranked_matches == []
+    assert result.schemes == []
+    assert "clarification" in result.stages_completed
+    assert "matching" not in result.stages_completed
+
+
+def test_conflicting_categorical_values_clarify() -> None:
+    """Occupation Tailor vs Farmer is disputed, not overwritten."""
+    form = UserProfile(occupation="Tailor")
+    result = _orchestrator().run_hybrid(form, [_open_scheme()], user_text="tailoring business")
+    assert result.clarification is not None
+    assert result.clarification.questions[0].field == "occupation"
+    assert "Tailor" in result.clarification.questions[0].question
+    assert "Farmer" in result.clarification.questions[0].question
+
+
+def test_multiple_conflicts_all_surfaced_once() -> None:
+    """Every disputed field appears exactly once in field order."""
+    from intelligence_engine.input_merger import detect_conflicts
+
+    conflicts = detect_conflicts(
+        UserProfile(age=32, occupation="Tailor", state="Bihar"),
+        UserProfile(age=35, occupation="Farmer", state="UP"),
+    )
+    assert [c.field for c in conflicts] == ["age", "state", "occupation"]
+    assert conflicts[0].form_value == 32 and conflicts[0].extracted_value == 35
+
+
+def test_conflict_preserves_both_sources() -> None:
+    """Neither source is overwritten; disputed profile fields stay unknown."""
+    form = _conflict_form(annual_family_income=400000.0)
+    before = form.model_dump()
+    result = _orchestrator().run_hybrid(form, [_open_scheme()], user_text="tailoring business")
+    assert form.model_dump() == before
+    assert result.profile.age is None
+    assert result.profile.annual_family_income is None
+    assert result.profile.state == "Uttar Pradesh"
+
+
+def test_confirmation_produces_canonical_value() -> None:
+    """User confirmation selects the canonical value for reruns."""
+    from intelligence_engine.input_merger import resolve_conflicts
+
+    form = _conflict_form()
+    extracted = UserProfile(age=25)
+    assert resolve_conflicts(form, extracted, {"age": "extracted"}).age == 25
+    assert resolve_conflicts(form, extracted, {"age": "form"}).age == 32
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError):
+        resolve_conflicts(form, extracted, {"age": "maybe"})
+    with _pytest.raises(ValueError):
+        resolve_conflicts(form, extracted, {"business_age": "form"})
+    with _pytest.raises(ValueError):
+        resolve_conflicts(form, None, {"age": "extracted"})
+
+
+def test_conflict_request_structure() -> None:
+    """Conflict requests carry conflicts, empty missing, and clean partials."""
+    form = _conflict_form()
+    result = _orchestrator().run_hybrid(form, [_open_scheme()], user_text="tailoring business")
+    request = result.clarification
+    assert request.missing_fields == []
+    assert len(request.conflicts) == 1
+    assert request.conflicts[0].field == "age"
+    assert request.current_partial_result.clarification is None
+    assert "clarification" not in request.current_partial_result.stages_completed
+
+
+def test_default_values_never_conflict() -> None:
+    """Schema defaults (e.g. income_period annual) are not user assertions."""
+    from intelligence_engine.input_merger import detect_conflicts
+
+    assert detect_conflicts(UserProfile(), UserProfile(age=25)) == []
+    assert detect_conflicts(
+        UserProfile(), UserProfile(age=25, income_period="unknown")
+    ) == []
+    assert detect_conflicts(UserProfile(), None) == []
+
+
+def test_malformed_choices_rejected() -> None:
+    """Resolution validates fields and choice values strictly."""
+    import pytest as _pytest
+
+    from intelligence_engine.input_merger import resolve_conflicts
+
+    with _pytest.raises(ValueError):
+        resolve_conflicts(UserProfile(age=32), UserProfile(age=35), {"age": 42})
+    resolved = resolve_conflicts(UserProfile(age=32), UserProfile(age=35), {})
+    assert resolved.age == 32
+
+
+def test_conflict_wording_uses_generator() -> None:
+    """Wording layer may rephrase conflict questions without changing fields."""
+    from intelligence_engine.clarification_generator import ClarificationGenerator
+
+    class _Echo:
+        """Echo fields with fixed rewording."""
+
+        def rewrite_questions(self, prompt):
+            """Return deterministic rewordings parsed from the prompt."""
+            items = []
+            for line in prompt.splitlines():
+                if line.startswith("- ["):
+                    field = line[3:].split("]")[0]
+                    items.append({"field": field, "question": f"Confirm {field}?"})
+            return items
+
+    orch = _orchestrator(clarification_generator=ClarificationGenerator(_Echo()))
+    result = orch.run_hybrid(_conflict_form(), [_open_scheme()], user_text="tailoring business")
+    assert result.clarification.questions[0].question == "Confirm age?"
+
+
+def test_missing_info_clarification_unaffected() -> None:
+    """needs_information path still works with no conflicts involved."""
+    result = _sparse_orchestrator().run("tailoring business", [_open_scheme()])
+    assert result.clarification is not None
+    assert result.clarification.conflicts == []
+    assert result.clarification.missing_fields == ["occupation"]
+
+
+class _PayloadLLM(LLMClient):
+    """LLM fake returning a configured extraction payload."""
+
+    def __init__(self, payload):
+        """Store the payload."""
+        self.payload = payload
+
+    def extract_profile_data(self, user_text):
+        """Return the configured payload."""
+        return dict(self.payload)
+
+
+class _PayloadNeeds(NeedExtractor):
+    """Need fake returning a configured extraction payload."""
+
+    def __init__(self, payload):
+        """Store the payload."""
+        self.payload = payload
+
+    def extract_need_data(self, user_text):
+        """Return the configured payload."""
+        return dict(self.payload)
+
+
+def _payload_orchestrator(profile_payload, needs_payload=None, **overrides):
+    """Orchestrator with fully controlled extraction outputs."""
+    parts = {
+        "profile_processor": ProfileProcessor(_PayloadLLM(profile_payload)),
+        "need_analyzer": NeedAnalyzer(
+            _PayloadNeeds(needs_payload if needs_payload is not None else {"needs": []})
+        ),
+    }
+    parts.update(overrides)
+    return _orchestrator(**parts)
+
+
+def test_equivalent_casing_no_conflict() -> None:
+    """Lucknow/lucknow and Female/female are equivalent, not conflicts."""
+    from intelligence_engine.input_merger import detect_conflicts
+
+    assert detect_conflicts(UserProfile(state="Lucknow"), UserProfile(state="lucknow")) == []
+    assert detect_conflicts(UserProfile(gender="Female"), UserProfile(gender="female")) == []
+    assert detect_conflicts(
+        UserProfile(occupation="  Tailor  "), UserProfile(occupation="tailor")
+    ) == []
+
+
+def test_empty_strings_are_not_assertions() -> None:
+    """Blank strings behave like missing values in detection."""
+    from intelligence_engine.input_merger import detect_conflicts
+
+    assert detect_conflicts(UserProfile(occupation=""), UserProfile(occupation="Farmer")) == []
+    assert detect_conflicts(UserProfile(occupation="   "), UserProfile(occupation="Farmer")) == []
+    assert detect_conflicts(UserProfile(), UserProfile()) == []
+
+
+def test_currency_strings_canonicalize() -> None:
+    """Indian-format amounts parse to identical canonical numbers."""
+    from intelligence_engine.profile_processor import normalize_profile_data
+
+    assert normalize_profile_data({"annual_family_income": "₹4,00,000"}) == {
+        "annual_family_income": 400000.0
+    }
+    assert normalize_profile_data({"annual_family_income": "4 lakh"}) == {
+        "annual_family_income": 400000.0
+    }
+    assert normalize_profile_data({"annual_family_income": "1.5 crore"}) == {
+        "annual_family_income": 15000000.0
+    }
+    assert normalize_profile_data({"annual_family_income": "Rs. 2,50,000.50"}) == {
+        "annual_family_income": 250000.5
+    }
+    assert normalize_profile_data({"annual_family_income": "lots of money"}) == {
+        "annual_family_income": "lots of money"
+    }
+
+
+def test_monthly_annual_equivalence_no_conflict() -> None:
+    """25000/month vs 300000/year is equivalent when periods are known."""
+    from intelligence_engine.input_merger import detect_conflicts
+
+    form = UserProfile(annual_family_income=25000, income_period="monthly")
+    extracted = UserProfile(annual_family_income=300000, income_period="annual")
+    assert detect_conflicts(form, extracted) == []
+
+
+def test_monthly_mismatch_stays_conflict() -> None:
+    """25000/month vs 50000/month is a genuine conflict."""
+    from intelligence_engine.input_merger import detect_conflicts
+
+    conflicts = detect_conflicts(
+        UserProfile(annual_family_income=25000, income_period="monthly"),
+        UserProfile(annual_family_income=50000, income_period="monthly"),
+    )
+    assert [c.field for c in conflicts] == ["annual_family_income"]
+
+
+def test_unknown_period_blocks_equivalence() -> None:
+    """Known monthly vs unknown period cannot be proven equivalent."""
+    from intelligence_engine.input_merger import detect_conflicts
+
+    conflicts = detect_conflicts(
+        UserProfile(annual_family_income=25000, income_period="monthly"),
+        UserProfile(annual_family_income=300000, income_period="unknown"),
+    )
+    assert [c.field for c in conflicts] == ["annual_family_income", "income_period"]
+
+
+def test_zero_negative_huge_decimal_amounts() -> None:
+    """Zero/decimal/huge values compare exactly; negatives fail validation."""
+    from intelligence_engine.input_merger import detect_conflicts
+    from pydantic import ValidationError
+
+    assert detect_conflicts(UserProfile(annual_family_income=0), UserProfile(annual_family_income=0.0)) == []
+    assert detect_conflicts(
+        UserProfile(annual_family_income=1000000000000), UserProfile(annual_family_income=1000000000000.0)
+    ) == []
+    assert detect_conflicts(
+        UserProfile(annual_family_income=250000.5), UserProfile(annual_family_income=250000.6)
+    )[0].field == "annual_family_income"
+    with pytest.raises(ValidationError):
+        UserProfile(annual_family_income=-5)
+
+
+def test_four_simultaneous_conflicts() -> None:
+    """All disputed fields surface once each in field order; engine idle."""
+    orch = _payload_orchestrator(
+        {
+            "age": 40,
+            "occupation": "Teacher",
+            "state": "Bihar",
+            "annual_family_income": 900000,
+        }
+    )
+    form = UserProfile(age=32, occupation="Tailor", state="Uttar Pradesh", annual_family_income=400000)
+    result = orch.run_hybrid(form, [_open_scheme(), _strict_scheme()], user_text="anything")
+    assert [q.field for q in result.clarification.questions] == [
+        "age",
+        "state",
+        "occupation",
+        "annual_family_income",
+    ]
+    assert result.ranked_matches == []
+    assert result.schemes == []
+    assert "eligibility" not in result.stages_completed
+    assert "matching" not in result.stages_completed
+
+
+def test_conflict_plus_missing_needs() -> None:
+    """Disputed profile blocks the engine; unknown needs ride along unsolved."""
+    orch = _payload_orchestrator({"age": 35}, {"needs": [{"need_type": "training"}]})
+    result = orch.run_hybrid(
+        UserProfile(age=32), [_open_scheme()], user_text="hi", form_needs=[SupportNeed(need_type="training")]
+    )
+    assert [q.field for q in result.clarification.questions] == ["age"]
+    assert result.clarification.missing_fields == []
+    assert result.schemes == []
+    assert result.support_plan is None
+
+
+def test_need_amount_conflict_clarifies() -> None:
+    """Form 5L vs text 8L for machinery asks instead of summing."""
+    from intelligence_engine.input_merger import detect_need_conflicts
+
+    form_needs = [SupportNeed(need_type="machinery", amount=500000, amount_period="one_time")]
+    text_needs = [SupportNeed(need_type="machinery", amount=800000, amount_period="one_time")]
+    conflicts = detect_need_conflicts(form_needs, text_needs)
+    assert len(conflicts) == 1
+    assert conflicts[0].field == "needs:machinery:one_time"
+    assert conflicts[0].form_value == 500000
+    assert conflicts[0].extracted_value == 800000
+
+    orch = _payload_orchestrator(
+        {"age": 25},
+        {"needs": [{"need_type": "machinery", "amount": 800000, "amount_period": "one_time"}]},
+    )
+    result = orch.run_hybrid(
+        UserProfile(age=25), [_open_scheme()], user_text="hi", form_needs=form_needs
+    )
+    assert [q.field for q in result.clarification.questions] == ["needs:machinery:one_time"]
+    assert "500000" in result.clarification.questions[0].question
+    assert "800000" in result.clarification.questions[0].question
+    assert result.ranked_matches == []
+    assert result.support_plan is None
+
+
+def test_need_distinct_types_merge() -> None:
+    """Machinery 5L plus working-capital 2L merge without dispute."""
+    from intelligence_engine.input_merger import detect_need_conflicts, merge_needs
+
+    form_needs = [SupportNeed(need_type="machinery", amount=500000, amount_period="one_time")]
+    text_needs = [SupportNeed(need_type="working_capital", amount=200000, amount_period="one_time")]
+    assert detect_need_conflicts(form_needs, text_needs) == []
+    merged = merge_needs(form_needs, text_needs)
+    assert [n.need_type for n in merged] == ["machinery", "working_capital"]
+
+
+def test_need_resolution_selects_canonical_amount() -> None:
+    """Confirmed need choices produce the canonical needs list."""
+    from intelligence_engine.input_merger import resolve_need_conflicts
+
+    form_needs = [SupportNeed(need_type="machinery", amount=500000, amount_period="one_time")]
+    text_needs = [SupportNeed(need_type="machinery", amount=800000, amount_period="one_time")]
+    resolved = resolve_need_conflicts(
+        form_needs, text_needs, {"needs:machinery:one_time": "extracted"}
+    )
+    assert len(resolved) == 1
+    assert resolved[0].amount == 800000
+    resolved_form = resolve_need_conflicts(
+        form_needs, text_needs, {"needs:machinery:one_time": "form"}
+    )
+    assert resolved_form[0].amount == 500000
+    with pytest.raises(ValueError):
+        resolve_need_conflicts(form_needs, text_needs, {"needs:machinery:one_time": "maybe"})
+    with pytest.raises(ValueError):
+        resolve_need_conflicts(form_needs, text_needs, {"needs:training:one_time": "form"})
+
+
+def test_voice_agreeing_values_run_normally() -> None:
+    """Voice transcript matching the form executes the full engine."""
+    orch = _voice_orchestrator()
+    form = UserProfile(district="Lucknow")
+    result = orch.run_hybrid(form, [_open_scheme()], audio=b"bytes")
+    assert result.clarification is None
+    assert result.profile.district == "Lucknow"
+    assert result.schemes[0].eligibility.status == "eligible"
+
+
+def test_voice_conflicting_values_clarify() -> None:
+    """Voice contradicting the form asks instead of running engines."""
+    orch = _voice_orchestrator()
+    result = orch.run_hybrid(UserProfile(age=32), [_open_scheme()], audio=b"bytes")
+    assert [q.field for q in result.clarification.questions] == ["age"]
+    assert result.ranked_matches == []
+
+
+def test_voice_transcription_failure_propagates() -> None:
+    """Transcription errors abort hybrid runs with the original error."""
+    from intelligence_engine.transcription import TranscriptionError
+
+    boom = TranscriptionError("mic unavailable")
+    orch = _voice_orchestrator(transcription_provider=_FakeTranscriber(error=boom))
+    with pytest.raises(TranscriptionError) as exc_info:
+        orch.run_hybrid(UserProfile(), [_open_scheme()], audio=b"x")
+    assert exc_info.value is boom
+
+
+def test_invalid_extracted_profile_rejected() -> None:
+    """Wrong-typed extraction fails validation before any engine runs."""
+    from intelligence_engine.profile_processor import ProfileProcessingError
+
+    orch = _payload_orchestrator({"age": "old"})
+    with pytest.raises(ProfileProcessingError):
+        orch.run_hybrid(UserProfile(), [_open_scheme()], user_text="hi")
+
+
+def test_invalid_extracted_values_rejected() -> None:
+    """Negative ages, non-finite amounts, and malformed needs all fail."""
+    from intelligence_engine.need_analyzer import NeedAnalysisError
+    from intelligence_engine.profile_processor import ProfileProcessingError
+
+    with pytest.raises(ProfileProcessingError):
+        _payload_orchestrator({"age": -5}).run_hybrid(UserProfile(), [_open_scheme()], user_text="hi")
+    with pytest.raises(ProfileProcessingError):
+        _payload_orchestrator({"annual_family_income": float("inf")}).run_hybrid(
+            UserProfile(), [_open_scheme()], user_text="hi"
+        )
+    with pytest.raises(NeedAnalysisError):
+        _payload_orchestrator({"age": 25}, {"needs": "machinery"}).run_hybrid(
+            UserProfile(), [_open_scheme()], user_text="hi"
+        )
+    with pytest.raises(NeedAnalysisError):
+        _payload_orchestrator({"age": 25}, {"needs": [{"amount": 5}]}).run_hybrid(
+            UserProfile(), [_open_scheme()], user_text="hi"
+        )
+
+
+def test_conflict_integrity_end_to_end() -> None:
+    """One entry/question per conflict; values exact; nothing unrelated."""
+    orch = _payload_orchestrator({"age": 35, "occupation": "Teacher"})
+    result = orch.run_hybrid(
+        UserProfile(age=32, occupation="Tailor"), [_open_scheme()], user_text="hi"
+    )
+    assert [q.field for q in result.clarification.questions] == ["age", "occupation"]
+    assert len(result.clarification.conflicts) == 2
+    by_field = {c.field: c for c in result.clarification.conflicts}
+    assert (by_field["age"].form_value, by_field["age"].extracted_value) == (32, 35)
+    assert "Which one is correct?" in result.clarification.questions[0].question
+
+
+def test_conflict_wording_fallback_intact() -> None:
+    """Bad rewrites keep deterministic conflict questions."""
+    from intelligence_engine.clarification_generator import ClarificationGenerator
+
+    class _Bad:
+        """Always-invalid rewording."""
+
+        def rewrite_questions(self, prompt):
+            """Return mismatched fields."""
+            return [{"field": "nope", "question": "What?"}]
+
+    orch = _payload_orchestrator({"age": 35})
+    orch.clarification_generator = ClarificationGenerator(_Bad())
+    result = orch.run_hybrid(UserProfile(age=32), [_open_scheme()], user_text="hi")
+    assert "32" in result.clarification.questions[0].question
+    assert "35" in result.clarification.questions[0].question

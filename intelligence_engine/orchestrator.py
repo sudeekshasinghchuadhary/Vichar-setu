@@ -19,11 +19,12 @@ No database, FastAPI, HTTP, parallelism, or persisted state.
 
 from typing import Any
 
-from intelligence_engine.clarification import build_clarification
+from intelligence_engine.clarification import build_clarification, build_conflict_request
 from intelligence_engine.eligibility_engine import EligibilityEngine
 from intelligence_engine.explanation_engine import ExplanationEngine
 from intelligence_engine.explanation_generator import ExplanationGenerator
 from intelligence_engine.financial_intelligence import FinancialIntelligence
+from intelligence_engine.input_merger import detect_conflicts, detect_need_conflicts, merge_inputs, merge_profiles
 from intelligence_engine.matching_engine import MatchingEngine
 from intelligence_engine.near_miss_engine import NearMissEngine
 from intelligence_engine.pathway_engine import ApplicationPathwayEngine
@@ -35,7 +36,9 @@ from intelligence_engine.schemas import (
     NeedAnalysisResult,
     Scheme,
     SchemeInsights,
+    SupportNeed,
     UserProfile,
+    ValueConflict,
 )
 from intelligence_engine.semantic_matcher import SemanticMatcher, combine_scores
 from intelligence_engine.support_planner import SupportPlanningEngine
@@ -211,6 +214,134 @@ class IntelligenceOrchestrator:
             supplied, not extracted).
         """
         return self._execute(profile, needs, schemes, document_availability, ["profile"], user_text)
+
+    def run_hybrid(
+        self,
+        form_profile: UserProfile,
+        schemes: list[Scheme],
+        user_text: str | None = None,
+        audio: bytes | None = None,
+        form_needs: list[SupportNeed] | None = None,
+        document_availability: dict[str, Any] | None = None,
+        language_hint: str | None = None,
+    ) -> IntelligenceResult:
+        """Run form + text/voice through one canonical input, then the pipeline.
+
+        Args:
+            form_profile: Structured form profile (no silent conflict wins).
+            schemes: Already-structured candidate schemes.
+            user_text: Optional supplementary natural-language text.
+            audio: Optional voice input (transcribed once via the text
+                path; never both audio and user_text at once).
+            form_needs: Optional structured form needs.
+            document_availability: Forwarded untouched to pathway planning.
+            language_hint: Wording hint for clarification only.
+
+        Returns:
+            IntelligenceResult from the unchanged downstream pipeline —
+            unless form and text genuinely conflict, in which case no
+            engine runs and the result carries conflict clarification
+            for user confirmation first.
+
+        Raises:
+            ValueError: When both audio and user_text are given, or when
+                audio is given without an injected transcription provider.
+        """
+        if audio is not None and user_text is not None:
+            raise ValueError("Provide either audio or user_text, not both.")
+        text = user_text
+        wording_hint = language_hint
+        if audio is not None:
+            if self.transcription_provider is None:
+                raise ValueError(
+                    "run_hybrid with audio requires an injected transcription_provider."
+                )
+            transcript = self.transcription_provider.transcribe(audio, language_hint=language_hint)
+            text = transcript.text
+            wording_hint = transcript.language or language_hint
+
+        extracted_profile = None
+        extracted_needs: list[SupportNeed] = []
+        goal: str | None = None
+        if text is not None:
+            extracted_profile = self.profile_processor.process_profile(text)
+            if self.need_analyzer is not None:
+                analyzed = self.need_analyzer.analyze(text)
+                extracted_needs = list(analyzed.needs)
+                goal = analyzed.business_goal
+
+        if extracted_profile is not None:
+            conflicts = detect_conflicts(form_profile, extracted_profile)
+            need_conflicts = detect_need_conflicts(form_needs, extracted_needs)
+            all_conflicts = conflicts + need_conflicts
+            if all_conflicts:
+                return self._conflict_result(
+                    form_profile, extracted_profile, form_needs, extracted_needs, goal,
+                    all_conflicts, text, wording_hint,
+                )
+
+        profile, needs = merge_inputs(
+            form_profile, extracted_profile, form_needs, extracted_needs, goal
+        )
+        stages = ["profile"]
+        if needs is not None:
+            stages.append("needs")
+        return self._execute(
+            profile, needs, schemes, document_availability, stages, text,
+            language_hint=wording_hint,
+        )
+
+    def _conflict_result(
+        self,
+        form_profile: UserProfile,
+        extracted_profile: UserProfile | None,
+        form_needs: list[SupportNeed] | None,
+        extracted_needs: list[SupportNeed],
+        goal: str | None,
+        conflicts: list[ValueConflict],
+        text: str | None,
+        wording_hint: str | None,
+    ) -> IntelligenceResult:
+        """Return clarification for disputed inputs without running engines.
+
+        Non-disputed fields still merge normally; conflicting profile
+        fields resolve to None (genuinely unknown) and disputed need
+        amounts stay out of merged needs. No eligibility, matching,
+        financial, support, or pathway logic executes on disputed data.
+        """
+        merged = merge_profiles(form_profile, extracted_profile)
+        safe_data = merged.model_dump()
+        excluded_keys: set[tuple[str, str]] = set()
+        for conflict in conflicts:
+            if conflict.field in UserProfile.model_fields:
+                safe_data[conflict.field] = None
+            elif conflict.field.startswith("needs:"):
+                excluded_keys.add(tuple(conflict.field.split(":", 2)[1:]))
+        safe_profile = UserProfile.model_validate(safe_data)
+        _, needs = merge_inputs(
+            form_profile, None, form_needs, extracted_needs, goal,
+            exclude_need_keys=excluded_keys,
+        )
+        stages = ["profile"]
+        if needs is not None:
+            stages.append("needs")
+        partial = IntelligenceResult(
+            profile=safe_profile,
+            needs=needs,
+            schemes=[],
+            stages_completed=stages,
+        )
+        request = build_conflict_request(conflicts, partial)
+        if self.clarification_generator is not None:
+            request = self.clarification_generator.generate(
+                request, language_hint=wording_hint, user_text=text
+            )
+        return partial.model_copy(
+            update={
+                "clarification": request,
+                "stages_completed": [*partial.stages_completed, "clarification"],
+            }
+        )
 
     def _execute(
         self,
