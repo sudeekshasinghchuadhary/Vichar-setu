@@ -2,8 +2,13 @@
 # Kept separate from backend/frontend requirements.
 pydantic>=2.0
 pytest>=8.0
-# LLM SDK to be decided with the team (e.g. openai / google-generativeai).
-# Added later once the provider is agreed.
+# LLM provider selected: Google Gemini (gemini-3.6-flash) via google-genai.
+# Gemini provider (real LLM extraction): only needed for gemini_provider.
+# Unit tests use fakes and do NOT need this. No API key in code; the
+# backend .env / pydantic-settings convention supplies GEMINI_API_KEY.
+# Pinned to the installed and smoke-tested 1.x release (2.x may move
+# generate_content/config semantics).
+# google-genai==1.75.0
 # Optional real embeddings (Step 7): only needed for LocalEmbeddingProvider.
 # Unit tests use the fake provider and do NOT need this. Implies several
 # hundred MB (CPU torch) plus a roughly half-GB one-time model download.
