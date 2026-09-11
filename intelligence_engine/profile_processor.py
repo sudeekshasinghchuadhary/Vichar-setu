@@ -11,31 +11,15 @@ from typing import Any, Optional
 from pydantic import ValidationError
 
 from intelligence_engine.llm_client import LLMClient
+from intelligence_engine.profile_vocabulary import (
+    normalize_social_category,
+    normalize_state,
+)
 from intelligence_engine.schemas import UserProfile
 
 
 class ProfileProcessingError(ValueError):
     """Raised when LLM output is malformed or fails UserProfile validation."""
-
-
-_STATE_ALIASES: dict[str, str] = {
-    "uttar pradesh": "Uttar Pradesh",
-    "up": "Uttar Pradesh",
-    "u.p.": "Uttar Pradesh",
-    "u p": "Uttar Pradesh",
-}
-
-_SOCIAL_CATEGORY_ALIASES: dict[str, str] = {
-    "sc": "SC",
-    "scheduled caste": "SC",
-    "st": "ST",
-    "scheduled tribe": "ST",
-    "obc": "OBC",
-    "other backward class": "OBC",
-    "other backward classes": "OBC",
-    "general": "General",
-    "ews": "EWS",
-}
 
 
 def _clean_str(value: Any) -> Optional[str]:
@@ -46,22 +30,6 @@ def _clean_str(value: Any) -> Optional[str]:
         return None
     cleaned = " ".join(value.split())
     return cleaned if cleaned else None
-
-
-def normalize_state(value: Any) -> Optional[str]:
-    """Normalize obvious state equivalents; leave ambiguous values as-is (cleaned)."""
-    cleaned = _clean_str(value)
-    if cleaned is None:
-        return None
-    return _STATE_ALIASES.get(cleaned.lower(), cleaned)
-
-
-def normalize_social_category(value: Any) -> Optional[str]:
-    """Normalize obvious social-category equivalents; leave others as-is (cleaned)."""
-    cleaned = _clean_str(value)
-    if cleaned is None:
-        return None
-    return _SOCIAL_CATEGORY_ALIASES.get(cleaned.lower(), cleaned)
 
 
 def normalize_profile_data(data: dict[str, Any]) -> dict[str, Any]:

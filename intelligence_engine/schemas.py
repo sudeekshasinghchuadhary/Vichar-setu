@@ -17,6 +17,10 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 from intelligence_engine.need_vocabulary import normalize_need_type
+from intelligence_engine.profile_vocabulary import (
+    normalize_social_category,
+    normalize_state,
+)
 
 
 class UserProfile(BaseModel):
@@ -52,6 +56,22 @@ class UserProfile(BaseModel):
         ),
     )
     education_level: Optional[str] = Field(default=None)
+
+    @field_validator("state")
+    @classmethod
+    def _normalize_state_field(cls, value: Optional[str]) -> Optional[str]:
+        """Shared state normalization; None stays None."""
+        if value is None:
+            return None
+        return normalize_state(value)
+
+    @field_validator("social_category")
+    @classmethod
+    def _normalize_category_field(cls, value: Optional[str]) -> Optional[str]:
+        """Shared social-category normalization; None stays None."""
+        if value is None:
+            return None
+        return normalize_social_category(value)
 
 
 SupportType = Literal["loan", "grant", "subsidy", "training", "marketing", "infrastructure", "other"]
