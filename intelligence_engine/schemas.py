@@ -607,3 +607,30 @@ class TranscriptionResult(BaseModel):
         if not cleaned:
             raise ValueError("transcript text must be non-empty.")
         return cleaned
+
+
+class ClarificationQuestion(BaseModel):
+    """One deterministic question grounded in a missing field.
+
+    field: machine-usable reference (UserProfile field name, or
+        "needs[i].amount" / "needs[i].amount_period").
+    question: Human-readable wording derived from that field only.
+    """
+
+    field: str = Field(min_length=1)
+    question: str = Field(min_length=1)
+
+
+class ClarificationRequest(BaseModel):
+    """Stateless clarification derived from structured uncertainty.
+
+    missing_fields: Deduplicated missing references in first-seen order.
+    questions: One deterministic question per missing reference.
+    current_partial_result: The IntelligenceResult that produced them,
+        unchanged — the backend re-invokes the pipeline after answers.
+    Absent (None from the builder) when nothing is missing.
+    """
+
+    missing_fields: list[str] = Field(default_factory=list)
+    questions: list[ClarificationQuestion] = Field(default_factory=list)
+    current_partial_result: IntelligenceResult = Field()
