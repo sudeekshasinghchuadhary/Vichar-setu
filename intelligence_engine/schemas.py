@@ -584,3 +584,26 @@ class IntelligenceResult(BaseModel):
             ranked_matches=list(result.ranked_matches),
             stages_completed=["profile", "eligibility", "matching"],
         )
+
+
+class TranscriptionResult(BaseModel):
+    """Validated speech-to-text output (wording preserved verbatim).
+
+    text: Transcript with whitespace collapsed; empty transcripts are
+        rejected (silence is a provider error, not an empty profile).
+    language: BCP-47-ish tag when the provider reports one (e.g. "hi",
+        "en"); None when unreported — never guessed.
+    No audio is stored; no profile/need information is added here.
+    """
+
+    text: str = Field(min_length=1)
+    language: Optional[str] = Field(default=None)
+
+    @field_validator("text")
+    @classmethod
+    def _collapse_whitespace(cls, value: str) -> str:
+        """Collapse whitespace without changing wording."""
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("transcript text must be non-empty.")
+        return cleaned

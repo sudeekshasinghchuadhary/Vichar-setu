@@ -21,6 +21,12 @@ from typing import Any, Mapping, Optional
 
 from intelligence_engine.llm_client import LLMClient, NeedExtractor
 from intelligence_engine.need_vocabulary import CANONICAL_NEED_TYPES
+from intelligence_engine.transcription import (
+    TranscriptionError,
+    TranscriptionProvider,
+    TranscriptionResult,
+    validate_transcript,
+)
 
 DEFAULT_MODEL = "gemini-3.6-flash"
 
@@ -255,3 +261,85 @@ class GeminiNeedExtractor(NeedExtractor):
             self._client = _real_client(self.config.api_key)
         prompt = _NEED_PROMPT.format(types=", ".join(CANONICAL_NEED_TYPES), text=user_text)
         return _call_json(self._client, self.config.model, prompt, _NEED_SCHEMA)
+
+
+TRANSCRIPTION_MODEL_ENV_VAR = "GEMINI_TRANSCRIPTION_MODEL"
+
+_TRANSCRIBE_INSTRUCTION = (
+    "Transcribe the speech in the attached audio verbatim as plain text. "
+    "Do not translate, summarize, profile, or add information."
+)
+
+
+class GeminiTranscriptionProvider(TranscriptionProvider):
+    """TranscriptionProvider using Gemini audio input (generate_content).
+
+    No dedicated transcription endpoint exists in google-genai 1.x, so
+    audio travels as an inline part to a regular model call. The model
+    defaults to the extraction model and is configurable per call site:
+    explicit constructor arg > GEMINI_TRANSCRIPTION_MODEL > config.model.
+    Transcription only: no profiling, typing, or reasoning here.
+    """
+
+    def __init__(
+        self,
+        config: Optional[GeminiConfig] = None,
+        client: Any = None,
+        model: Optional[str] = None,
+        audio_mime_type: str = "audio/wav",
+    ) -> None:
+        """Store config; SDK client and model resolve lazily/at call time."""
+        self.config = config or GeminiConfig.from_env()
+        self._client = client
+        self._model = model
+        self.audio_mime_type = audio_mime_type
+
+    @property
+    def model(self) -> str:
+        """Effective transcription model name."""
+        explicit = (self._model or "").strip()
+        if explicit:
+            return explicit
+        env_model = os.environ.get(TRANSCRIPTION_MODEL_ENV_VAR, "").strip()
+        return env_model or self.config.model
+
+    def transcribe(
+        self, audio: bytes, language_hint: Optional[str] = None
+    ) -> TranscriptionResult:
+        """Transcribe audio bytes; failures become TranscriptionError."""
+        if not isinstance(audio, (bytes, bytearray)) or not audio:
+            raise TranscriptionError("Empty audio payload.")
+        instruction = _TRANSCRIBE_INSTRUCTION
+        if language_hint and language_hint.strip():
+            instruction += f" The speaker may be using: {language_hint.strip()}."
+        if self._client is None:
+            try:
+                self._client = _real_client(self.config.api_key)
+            except GeminiError as exc:
+                raise TranscriptionError(str(exc)) from exc
+            try:
+                from google.genai import types
+            except ImportError as exc:
+                raise TranscriptionError(
+                    "google-genai is not installed. Install the optional provider "
+                    "dependency to use Gemini; unit tests use fakes."
+                ) from exc
+            contents: list[Any] = [
+                types.Part.from_bytes(data=bytes(audio), mime_type=self.audio_mime_type),
+                instruction,
+            ]
+        else:
+            contents = [bytes(audio), instruction]
+        try:
+            response = self._client.models.generate_content(
+                model=self.model,
+                contents=contents,
+            )
+            text = response.text
+        except TranscriptionError:
+            raise
+        except Exception as exc:
+            raise TranscriptionError(
+                f"Gemini transcription call failed: {type(exc).__name__}: {exc}"
+            ) from exc
+        return validate_transcript(text)
