@@ -568,3 +568,181 @@ def test_clarification_run_immutability() -> None:
     assert profile.model_dump() == before[0]
     assert [s.model_dump() for s in schemes] == before[1]
     assert needs.model_dump() == before[2]
+
+
+class _FakeTranscriber:
+    """Canned transcription backend recording its inputs."""
+
+    def __init__(self, text="tailoring business", language=None, error=None):
+        """Store canned transcript output."""
+        self.text = text
+        self.language = language
+        self.error = error
+        self.calls = []
+
+    def transcribe(self, audio, language_hint=None):
+        """Return the canned transcript or raise."""
+        from intelligence_engine.transcription import TranscriptionError
+
+        self.calls.append({"audio": audio, "language_hint": language_hint})
+        if self.error is not None:
+            raise self.error
+        if not audio:
+            raise TranscriptionError("Empty audio payload.")
+        from intelligence_engine.schemas import TranscriptionResult
+
+        return TranscriptionResult(text=self.text, language=self.language)
+
+
+def _voice_orchestrator(**overrides):
+    """Orchestrator with fake transcription wired in."""
+    parts = {"transcription_provider": _FakeTranscriber()}
+    parts.update(overrides)
+    return _orchestrator(**parts)
+
+
+def test_voice_audio_to_result() -> None:
+    """A: audio transcribes and flows through the identical pipeline."""
+    result = _voice_orchestrator().run_from_audio(b"fake-audio-bytes", [_open_scheme()])
+    assert result.profile.purpose == "business expansion"
+    assert result.schemes[0].eligibility.status == "eligible"
+    assert result.ranked_matches[0].scheme_id == "scheme-open"
+
+
+def test_voice_result_matches_text_result() -> None:
+    """B: audio output equals the same transcript run as text."""
+    orch = _voice_orchestrator()
+    schemes = [_open_scheme(), _strict_scheme()]
+    from_audio = orch.run_from_audio(b"bytes", schemes)
+    from_text = orch.run("tailoring business", schemes)
+    assert from_audio == from_text
+
+
+def test_provider_receives_exact_audio() -> None:
+    """C: byte-identical audio reaches the provider."""
+    provider = _FakeTranscriber()
+    _voice_orchestrator(transcription_provider=provider).run_from_audio(
+        b"\x00\x01voice", [_open_scheme()]
+    )
+    assert provider.calls == [{"audio": b"\x00\x01voice", "language_hint": None}]
+
+
+def test_language_hint_forwarded_exactly() -> None:
+    """D: caller hint passes through untouched."""
+    provider = _FakeTranscriber()
+    _voice_orchestrator(transcription_provider=provider).run_from_audio(
+        b"x", [_open_scheme()], language_hint="hi"
+    )
+    assert provider.calls[0]["language_hint"] == "hi"
+
+
+def test_reported_language_reaches_wording() -> None:
+    """E: provider-reported language wins for clarification wording."""
+    from intelligence_engine.clarification_generator import ClarificationGenerator
+
+    seen = {}
+
+    class _RecordingWording:
+        """Capture wording inputs, echo deterministically."""
+
+        def rewrite_questions(self, prompt):
+            """Record and echo a fixed rewording."""
+            seen["prompt"] = prompt
+            return [{"field": "occupation", "question": "HI wording?"}]
+
+    orch = _sparse_orchestrator(
+        transcription_provider=_FakeTranscriber(language="Hindi"),
+        clarification_generator=ClarificationGenerator(_RecordingWording()),
+    )
+    profile_schemes = [_open_scheme()]
+    result = orch.run_from_audio(b"x", profile_schemes)
+    assert result.clarification.questions[0].question == "HI wording?"
+    assert " in Hindi" in seen["prompt"]
+
+
+def test_no_reported_language_keeps_context_behavior() -> None:
+    """F: without provider language, transcript context still flows."""
+    from intelligence_engine.clarification_generator import ClarificationGenerator
+
+    seen = {}
+
+    class _RecordingWording:
+        """Capture wording inputs, echo deterministically."""
+
+        def rewrite_questions(self, prompt):
+            """Record and echo a fixed rewording."""
+            seen["prompt"] = prompt
+            return [{"field": "occupation", "question": "Echo wording?"}]
+
+    orch = _sparse_orchestrator(
+        transcription_provider=_FakeTranscriber(language=None),
+        clarification_generator=ClarificationGenerator(_RecordingWording()),
+    )
+    result = orch.run_from_audio(b"x", [_open_scheme()])
+    assert result.clarification is not None
+    assert "tailoring business" in seen["prompt"]
+
+
+def test_transcription_error_propagates_unchanged() -> None:
+    """G: provider failures abort with the original error, no partial result."""
+    from intelligence_engine.transcription import TranscriptionError
+
+    boom = TranscriptionError("mic unavailable")
+    orch = _voice_orchestrator(transcription_provider=_FakeTranscriber(error=boom))
+    try:
+        orch.run_from_audio(b"x", [_open_scheme()])
+    except TranscriptionError as exc:
+        assert exc is boom
+    else:
+        raise AssertionError("TranscriptionError must propagate")
+
+
+def test_missing_provider_raises_value_error() -> None:
+    """H: no injected provider is an explicit configuration error."""
+    with pytest.raises(ValueError, match="transcription_provider"):
+        _orchestrator().run_from_audio(b"x", [_open_scheme()])
+
+
+def test_audio_never_stored() -> None:
+    """I: audio bytes appear nowhere in the result."""
+    result = _voice_orchestrator().run_from_audio(b"secret-bytes", [_open_scheme()])
+    assert "secret-bytes" not in result.model_dump_json()
+
+
+def test_voice_inputs_unmodified() -> None:
+    """J: schemes unchanged; audio bytes object untouched."""
+    schemes = [_open_scheme(), _strict_scheme()]
+    audio = b"\x00voice"
+    before = [s.model_dump() for s in schemes]
+    _voice_orchestrator().run_from_audio(audio, schemes)
+    assert [s.model_dump() for s in schemes] == before
+    assert audio == b"\x00voice"
+
+
+def test_voice_runs_deterministic() -> None:
+    """K: identical audio yields identical results."""
+    orch = _voice_orchestrator()
+    schemes = [_open_scheme(), _strict_scheme()]
+    assert orch.run_from_audio(b"x", schemes) == orch.run_from_audio(b"x", schemes)
+
+
+def test_voice_incomplete_info_clarifies() -> None:
+    """L: transcript gaps follow the normal clarification flow."""
+    provider = _FakeTranscriber(text="I am 25")
+    orch = _sparse_orchestrator(transcription_provider=provider)
+    result = orch.run_from_audio(b"x", [_open_scheme()])
+    assert result.clarification is not None
+    assert "occupation" in result.clarification.missing_fields
+    assert "clarification" in result.stages_completed
+
+
+def test_text_answers_need_no_voice_state() -> None:
+    """M: follow-up text answers reuse run_from_profile with no voice residue."""
+    voice_result = _sparse_orchestrator(transcription_provider=_FakeTranscriber()).run_from_audio(
+        b"x", [_open_scheme()]
+    )
+    assert voice_result.clarification is not None
+    profile = _structured_profile()
+    text_result = _orchestrator().run_from_profile(profile, [_open_scheme()], _structured_needs())
+    assert text_result.clarification is None
+    assert "clarification" not in text_result.stages_completed

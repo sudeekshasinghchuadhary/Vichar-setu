@@ -39,6 +39,7 @@ from intelligence_engine.schemas import (
 )
 from intelligence_engine.semantic_matcher import SemanticMatcher, combine_scores
 from intelligence_engine.support_planner import SupportPlanningEngine
+from intelligence_engine.transcription import TranscriptionProvider
 
 
 def _has_pathway_data(scheme: Scheme) -> bool:
@@ -69,6 +70,7 @@ class IntelligenceOrchestrator:
         explanation_engine: ExplanationEngine | None = None,
         explanation_generator: ExplanationGenerator | None = None,
         clarification_generator: Any = None,
+        transcription_provider: TranscriptionProvider | None = None,
     ) -> None:
         """Store injected components (defaults are real engines, never vendors).
 
@@ -95,12 +97,14 @@ class IntelligenceOrchestrator:
         self.explanation_engine = explanation_engine or ExplanationEngine()
         self.explanation_generator = explanation_generator
         self.clarification_generator = clarification_generator
+        self.transcription_provider = transcription_provider
 
     def run(
         self,
         user_text: str,
         schemes: list[Scheme],
         document_availability: dict[str, Any] | None = None,
+        language_hint: str | None = None,
     ) -> IntelligenceResult:
         """Run the full flow and assemble the product result.
 
@@ -109,11 +113,24 @@ class IntelligenceOrchestrator:
             schemes: Already-structured candidate schemes.
             document_availability: Optional doc-name -> availability map
                 forwarded untouched to pathway planning.
+            language_hint: Optional wording hint forwarded ONLY to
+                clarification wording. Never decision input.
 
         Returns:
             IntelligenceResult with accurately recorded stages_completed.
         """
         stages: list[str] = []
+        return self._run_text(user_text, schemes, document_availability, stages, language_hint)
+
+    def _run_text(
+        self,
+        user_text: str,
+        schemes: list[Scheme],
+        document_availability: dict[str, Any] | None,
+        stages: list[str],
+        language_hint: str | None,
+    ) -> IntelligenceResult:
+        """Shared text pipeline: profile/needs extraction, then _execute."""
         profile = self.profile_processor.process_profile(user_text)
         stages.append("profile")
 
@@ -122,7 +139,47 @@ class IntelligenceOrchestrator:
             needs = self.need_analyzer.analyze(user_text)
             stages.append("needs")
 
-        return self._execute(profile, needs, schemes, document_availability, stages, user_text)
+        return self._execute(
+            profile, needs, schemes, document_availability, stages, user_text,
+            language_hint=language_hint,
+        )
+
+    def run_from_audio(
+        self,
+        audio: bytes,
+        schemes: list[Scheme],
+        document_availability: dict[str, Any] | None = None,
+        language_hint: str | None = None,
+    ) -> IntelligenceResult:
+        """Run the identical text pipeline from transcribed audio.
+
+        Args:
+            audio: Raw audio bytes. Transcribed once; only the validated
+                transcript text enters the pipeline — audio never reaches
+                eligibility, matching, financial, support, or pathway logic.
+            schemes: Already-structured candidate schemes.
+            document_availability: Forwarded untouched to pathway planning.
+            language_hint: Caller hint passed to transcription and used
+                only when the provider reports no language of its own.
+
+        Returns:
+            IntelligenceResult identical in shape to run(); wording
+            prefers provider-reported language, then the caller hint.
+
+        Raises:
+            ValueError: When no transcription provider was injected.
+            TranscriptionError: Propagated unchanged on empty audio,
+                empty transcripts, or provider failures (no partial result).
+        """
+        if self.transcription_provider is None:
+            raise ValueError(
+                "run_from_audio requires an injected transcription_provider."
+            )
+        transcript = self.transcription_provider.transcribe(audio, language_hint=language_hint)
+        wording_hint = transcript.language or language_hint
+        return self._run_text(
+            transcript.text, schemes, document_availability, [], wording_hint
+        )
 
     def run_from_profile(
         self,
@@ -163,6 +220,7 @@ class IntelligenceOrchestrator:
         document_availability: dict[str, Any] | None,
         stages: list[str],
         user_text: str | None = None,
+        language_hint: str | None = None,
     ) -> IntelligenceResult:
         """Shared downstream flow: eligibility -> result assembly."""
         eligibility = self.eligibility_engine.evaluate_many(profile, schemes)
@@ -244,22 +302,29 @@ class IntelligenceOrchestrator:
             explanations=explanations,
             stages_completed=stages,
         )
-        return self._attach_clarification(partial, user_text)
+        return self._attach_clarification(partial, user_text, language_hint)
 
     def _attach_clarification(
-        self, partial: IntelligenceResult, user_text: str | None
+        self,
+        partial: IntelligenceResult,
+        user_text: str | None,
+        language_hint: str | None = None,
     ) -> IntelligenceResult:
         """Attach deterministic clarification (optionally worded) if needed.
 
         Builds from the completed partial result, so
         current_partial_result never contains a clarification field.
-        user_text reaches only the wording layer, never decision logic.
+        user_text and language_hint reach only the wording layer, with
+        provider-reported language winning over caller hints, never
+        decision logic.
         """
         request = build_clarification(partial)
         if request is None:
             return partial
         if self.clarification_generator is not None:
-            request = self.clarification_generator.generate(request, user_text=user_text)
+            request = self.clarification_generator.generate(
+                request, language_hint=language_hint, user_text=user_text
+            )
         return partial.model_copy(
             update={
                 "clarification": request,
