@@ -76,3 +76,28 @@ class LLMExplanationProvider(ABC):
             Natural-language explanation draft (validated afterwards).
         """
         raise NotImplementedError
+
+
+class ClarificationWordingProvider(ABC):
+    """Abstract clarification-rewording backend (wording only, no authority).
+
+    Receives a prompt built from an already-built ClarificationRequest
+    and returns reworded questions. Must NOT add, remove, reorder, or
+    reinterpret fields — the ClarificationGenerator validates the
+    response field-for-field and falls back to the deterministic
+    request on any violation.
+    """
+
+    @abstractmethod
+    def rewrite_questions(self, prompt: str) -> list[dict[str, Any]]:
+        """Reword supplied questions, preserving fields exactly.
+
+        Args:
+            prompt: Prompt built solely from ClarificationRequest content
+                plus fixed grounding instructions.
+
+        Returns:
+            List of {"field": str, "question": str} dicts in the same
+            order and count as the request's questions.
+        """
+        raise NotImplementedError
