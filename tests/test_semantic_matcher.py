@@ -119,9 +119,14 @@ def test_hybrid_combines_without_breaking_deterministic_scale() -> None:
     """Hybrid stays 0-100; weight 0 keeps deterministic, 1 keeps semantic."""
     assert combine_scores(80.0, 60.0, semantic_weight=0.0) == 80.0
     assert combine_scores(80.0, 60.0, semantic_weight=1.0) == 60.0
-    assert combine_scores(80.0, 60.0) == pytest.approx(74.0)
+    assert combine_scores(80.0, 60.0, semantic_weight=0.3) == pytest.approx(74.0)
     with pytest.raises(SemanticMatcherError):
         combine_scores(120.0, 60.0)
+
+
+def test_combine_scores_defaults_to_deterministic_only() -> None:
+    """Omitted weight defaults to deterministic-only (0.0)."""
+    assert combine_scores(80.0, 60.0) == pytest.approx(80.0)
 
 
 def test_semantic_layer_separate_from_eligibility() -> None:

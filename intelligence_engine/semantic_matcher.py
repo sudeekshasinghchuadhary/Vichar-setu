@@ -154,12 +154,12 @@ def assess_representation(
     return RepresentationQuality(user=user_level, scheme=scheme_level)
 
 
-def combine_scores(deterministic_score: float, semantic_score: float, semantic_weight: float = 0.3) -> float:
+def combine_scores(deterministic_score: float, semantic_score: float, semantic_weight: float = 0.0) -> float:
     """Mix deterministic and semantic 0-100 scores into a hybrid 0-100 score.
 
     hybrid = (1 - semantic_weight) * deterministic + semantic_weight * semantic.
-    The default 0.3 keeps the explainable deterministic signal dominant;
-    it is a prototype default, easy to change, not a tuned constant.
+    The default 0.0 is the safe deterministic-only default, matching the
+    production orchestrator; nonzero weighting is explicit opt-in/experimental.
     """
     for label, value in (("deterministic_score", deterministic_score), ("semantic_score", semantic_score)):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
