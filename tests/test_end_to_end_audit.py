@@ -163,11 +163,11 @@ def test_normal_successful_flow() -> None:
 
 
 def test_no_eligible_schemes() -> None:
-    """Ranking empty, eligibility completed, near-miss still analyzed."""
+    """Ranking empty, eligibility completed, near-miss analyzed but off."""
     result = _orchestrator().run(TEXT, [_strict_income_scheme()])
     assert result.ranked_matches == []
     assert "eligibility" in result.stages_completed
-    assert result.schemes[0].near_miss.is_near_miss is True
+    assert result.schemes[0].near_miss.is_near_miss is False
     assert result.schemes[0].pathway is None
 
 
@@ -206,10 +206,10 @@ def test_needs_information_eligibility() -> None:
 
 
 def test_near_miss_scheme_end_to_end() -> None:
-    """3+ satisfied, 1 failed (income) surfaces with reasons intact."""
+    """3+ satisfied, 1 failed (income): trace intact, verdict off under conservative-off."""
     result = _orchestrator().run(TEXT, [_strict_income_scheme()])
     near = result.schemes[0].near_miss
-    assert near.is_near_miss is True
+    assert near.is_near_miss is False
     assert any("maximum allowed income" in r for r in near.reasons)
 
 

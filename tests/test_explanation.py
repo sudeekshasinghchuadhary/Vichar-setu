@@ -85,12 +85,12 @@ def test_matching_explanation() -> None:
 
 
 def test_near_miss_explanation() -> None:
-    """Near-miss verdict with structured failed-criterion evidence."""
+    """Failed-criterion evidence traced; verdict off under conservative-off."""
     profile = _profile(annual_family_income=320000.0)
     scheme = make_scheme()
     near = NearMissEngine().analyze(profile, scheme, EligibilityEngine().evaluate(profile, scheme))
     trace = _engine().explain_near_miss(near)
-    assert _decision(trace) == "Scheme 'scheme-001' is a near miss."
+    assert _decision(trace) == "Scheme 'scheme-001' is not a near miss."
     assert any("annual_family_income" in item.text and "320000" in item.text for item in trace.items)
     assert any(item.kind == "calculation" and "20000" in item.text for item in trace.items)
 

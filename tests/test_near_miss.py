@@ -29,14 +29,14 @@ def test_all_passing_scheme_is_not_near_miss() -> None:
     assert result.total_criteria == 6
 
 
-def test_single_failure_is_near_miss() -> None:
-    """3+ satisfied with 1 failed (income) reads as a near miss."""
+def test_single_failure_conservative_off() -> None:
+    """CONSERVATIVE-OFF: one failure no longer classifies; evidence preserved."""
     profile = _satisfied_profile().model_copy(update={"annual_family_income": 320000.0})
     scheme = make_scheme()
     eligibility = EligibilityEngine().evaluate(profile, scheme)
     result = NearMissEngine().analyze(profile, scheme, eligibility)
     assert eligibility.status == "not_eligible"
-    assert result.is_near_miss is True
+    assert result.is_near_miss is False
     assert [criterion.criterion for criterion in result.failed_criteria] == ["annual_family_income"]
     assert len(result.satisfied_criteria) == 5
     assert result.total_criteria == 6
@@ -82,7 +82,7 @@ def test_categorical_failures_have_no_numeric_distance() -> None:
     result = NearMissEngine().analyze(
         profile, make_scheme(), EligibilityEngine().evaluate(profile, make_scheme())
     )
-    assert result.is_near_miss is True
+    assert result.is_near_miss is False
     assert result.failed_criteria[0].difference is None
     assert "Bihar" in str(result.failed_criteria[0].user_value)
 
@@ -166,4 +166,68 @@ def test_scheme_without_rules_is_not_near_miss() -> None:
         profile, scheme, EligibilityEngine().evaluate(profile, scheme)
     )
     assert result.total_criteria == 0
+    assert result.is_near_miss is False
+
+
+def test_categorical_single_failure_conservative_off() -> None:
+    """CONSERVATIVE-OFF: categorical failures stay off; trace intact for policy work."""
+    profile = UserProfile(occupation="Teacher")
+    scheme = Scheme(id="s-cat", name="Category-gated", eligibility_rules={"occupations": ["Farmer"]})
+    eligibility = EligibilityEngine().evaluate(profile, scheme)
+    result = NearMissEngine().analyze(profile, scheme, eligibility)
+    assert eligibility.status == "not_eligible"
+    assert len(result.failed_criteria) == 1
+    failed = result.failed_criteria[0]
+    assert failed.criterion == "occupation"
+    assert failed.user_value == "Teacher"
+    assert failed.required == "one of: Farmer"
+    assert failed.difference is None
+    assert result.is_near_miss is False
+
+
+def test_small_quantitative_failure_conservative_off() -> None:
+    """CONSERVATIVE-OFF: numeric distance alone never classifies; trace intact."""
+    profile = UserProfile(annual_family_income=550000)
+    scheme = Scheme(id="s-small", name="Income-gated", eligibility_rules={"max_annual_income": 500000})
+    eligibility = EligibilityEngine().evaluate(profile, scheme)
+    result = NearMissEngine().analyze(profile, scheme, eligibility)
+    assert eligibility.status == "not_eligible"
+    assert len(result.failed_criteria) == 1
+    failed = result.failed_criteria[0]
+    assert failed.criterion == "annual_family_income"
+    assert failed.user_value == 550000.0
+    assert failed.required == "<= 500000"
+    assert failed.difference == 50000.0
+    assert result.is_near_miss is False
+
+
+def test_large_quantitative_failure_conservative_off() -> None:
+    """CONSERVATIVE-OFF: large misses stay off; trace intact for future policy."""
+    profile = UserProfile(annual_family_income=900000)
+    scheme = Scheme(id="s-large", name="Income-gated", eligibility_rules={"max_annual_income": 500000})
+    eligibility = EligibilityEngine().evaluate(profile, scheme)
+    result = NearMissEngine().analyze(profile, scheme, eligibility)
+    assert eligibility.status == "not_eligible"
+    assert len(result.failed_criteria) == 1
+    failed = result.failed_criteria[0]
+    assert failed.criterion == "annual_family_income"
+    assert failed.user_value == 900000.0
+    assert failed.required == "<= 500000"
+    assert failed.difference == 400000.0
+    assert result.is_near_miss is False
+
+
+def test_two_failures_currently_return_not_near_miss() -> None:
+    """CURRENT BEHAVIOR BASELINE: two failed dimensions are not a near miss."""
+    profile = UserProfile(occupation="Teacher", annual_family_income=900000)
+    scheme = Scheme(
+        id="s-multi",
+        name="Multi-gated",
+        eligibility_rules={"occupations": ["Farmer"], "max_annual_income": 500000},
+    )
+    eligibility = EligibilityEngine().evaluate(profile, scheme)
+    result = NearMissEngine().analyze(profile, scheme, eligibility)
+    assert eligibility.status == "not_eligible"
+    assert len(result.failed_criteria) == 2
+    assert result.total_criteria == 2
     assert result.is_near_miss is False

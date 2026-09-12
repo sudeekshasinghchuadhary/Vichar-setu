@@ -151,11 +151,11 @@ def test_profile_to_matching() -> None:
 
 
 def test_eligibility_to_near_miss() -> None:
-    """The strict scheme's single income failure reads as a near miss."""
+    """Strict scheme analyzed but off under conservative-off; open scheme untouched."""
     result = _orchestrator().run("tailoring business", [_open_scheme(), _strict_scheme()])
     by_id = {s.scheme_id: s for s in result.schemes}
     assert by_id["scheme-open"].near_miss is None
-    assert by_id["scheme-strict"].near_miss.is_near_miss is True
+    assert by_id["scheme-strict"].near_miss.is_near_miss is False
 
 
 def test_needs_to_support_planning() -> None:
@@ -257,10 +257,10 @@ def test_multiple_schemes_associated() -> None:
 
 
 def test_no_eligible_schemes() -> None:
-    """Nothing ranked, near-miss still analyzed, plan stays uncertain."""
+    """Nothing ranked, near-miss analyzed but off, plan stays uncertain."""
     result = _orchestrator().run("tailoring business", [_strict_scheme()])
     assert result.ranked_matches == []
-    assert result.schemes[0].near_miss.is_near_miss is True
+    assert result.schemes[0].near_miss.is_near_miss is False
     assert result.schemes[0].pathway is None
     assert result.support_plan.need_plans[0].best_known_coverage is None
 

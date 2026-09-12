@@ -2,19 +2,19 @@
 
 Flow: EligibilityEngine -> not_eligible -> NearMissEngine -> NearMissResult.
 
-A near miss means: exactly the known mandatory criteria pass except a
-small configurable number of failed dimensions (default: 1), with no
-unknown (missing) dimensions. Missing information is never a failure
-and disqualifies near-miss status — closeness cannot be claimed about
-requirements whose values are unknown.
+INTERIM POLICY: CONSERVATIVE-OFF. No criterion currently has
+domain-validated closeness support (see _VALIDATED_CLOSENESS_CRITERIA),
+so is_near_miss is always False. The architecture is preserved: when a
+criterion gains validated support, adding its dimension name to that set
+is the entire policy change — no engine rewrite needed.
 
 NearMissEngine NEVER changes eligibility: it reads the status, analyzes
 the shared rule outcomes (same source of truth as EligibilityEngine),
 and reports. It uses no embeddings, match scores, LLM, database, or API.
 
 Each FailedCriterion carries machine-usable fields (criterion,
-user_value, required, difference) so a future What-If engine can
-simulate "what would change this outcome" directly from NearMissResult.
+user_value, required, difference) so evidence stays available for
+explanation, What-If, and any future validated policy.
 """
 
 from intelligence_engine.eligibility_engine import (
@@ -51,22 +51,29 @@ def _proximity_detail(dimension: str, difference: float | None) -> str | None:
     return None
 
 
+# POLICY BOUNDARY: dimensions with domain-validated closeness support.
+# Empty under the interim CONSERVATIVE-OFF policy: no positive
+# near-miss classification is possible until a criterion is added here
+# together with its validating evidence and tests. Adding a name is the
+# whole of any future per-criterion enablement; no other code changes.
+_VALIDATED_CLOSENESS_CRITERIA: frozenset[str] = frozenset()
+
+
+def _criterion_has_closeness_support(dimension: str) -> bool:
+    """Whether a failed dimension has validated closeness support."""
+    return dimension in _VALIDATED_CLOSENESS_CRITERIA
+
+
 class NearMissEngine:
     """Analyze not_eligible outcomes for rule-based closeness."""
 
-    def __init__(self, max_failed_criteria: int = 1, require_no_missing: bool = True) -> None:
+    def __init__(self, require_no_missing: bool = True) -> None:
         """Configure the transparent closeness definition.
 
         Args:
-            max_failed_criteria: Maximum failed dimensions still "close".
-                Default 1 ("one criterion away"); no percentages, no
-                hidden thresholds.
             require_no_missing: When True (default), any unknown dimension
                 disqualifies near-miss status.
         """
-        if not isinstance(max_failed_criteria, int) or max_failed_criteria < 1:
-            raise ValueError("max_failed_criteria must be a positive integer.")
-        self.max_failed_criteria = max_failed_criteria
         self.require_no_missing = require_no_missing
 
     def analyze(
@@ -85,8 +92,9 @@ class NearMissEngine:
 
         Returns:
             NearMissResult. is_near_miss is True only for
-            status "not_eligible" with few enough failures and (by
-            default) no missing dimensions.
+            status "not_eligible" where every failed dimension has
+            validated closeness support and (by default) no missing
+            dimensions. No count cap, no aggregate score.
         """
         if eligibility is None:
             eligibility = EligibilityEngine().evaluate(profile, scheme)
@@ -121,10 +129,12 @@ class NearMissEngine:
                 satisfied.append(dimension)
 
         total = len(by_dimension)
+        supported = [_criterion_has_closeness_support(criterion.criterion) for criterion in failed]
         is_near_miss = (
             eligibility.status == "not_eligible"
-            and 0 < len(failed) <= self.max_failed_criteria
+            and len(failed) > 0
             and (not self.require_no_missing or len(missing_dims) == 0)
+            and all(supported)
         )
 
         reasons: list[str] = []
