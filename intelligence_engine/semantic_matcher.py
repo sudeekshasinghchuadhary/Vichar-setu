@@ -24,9 +24,14 @@ deterministic fake defined in the test module.
 import math
 from abc import ABC, abstractmethod
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from intelligence_engine.schemas import Scheme, UserProfile
+from intelligence_engine.need_vocabulary import normalize_need_type
+from intelligence_engine.schemas import (
+    RepresentationQuality,
+    Scheme,
+    SemanticScore,
+    SupportNeed,
+    UserProfile,
+)
 
 
 class SemanticMatcherError(ValueError):
@@ -47,22 +52,6 @@ class EmbeddingProvider(ABC):
             Non-empty list of finite floats.
         """
         raise NotImplementedError
-
-
-class SemanticScore(BaseModel):
-    """Structured semantic result (no natural-language claims).
-
-    Pydantic model so scores crossing the future Intelligence API
-    boundary serialize cleanly via model_dump()/model_dump_json().
-    Non-finite floats are rejected like all intelligence contracts.
-    """
-
-    model_config = ConfigDict(allow_inf_nan=False)
-
-    score: float = Field()
-    cosine: float = Field()
-    user_text: str = Field()
-    scheme_text: str = Field()
 
 
 def cosine_similarity(first: list[float], second: list[float]) -> float:
@@ -97,9 +86,19 @@ def _validate_vector(vector: object, label: str) -> None:
             raise SemanticMatcherError(f"{label} vector must contain only finite numbers.")
 
 
-def build_user_text(profile: UserProfile) -> str:
-    """Join the user's need-oriented fields (purpose, project type, occupation)."""
+def build_user_text(
+    profile: UserProfile, needs: list[SupportNeed] | None = None
+) -> str:
+    """Join the user's need-oriented fields plus rich need descriptions.
+
+    Profile fields (purpose, project type, occupation) come first, then
+    each need's context (rich description) when present, falling back to
+    its canonical need_type. Needs without usable text contribute nothing.
+    """
     parts = [profile.purpose, profile.project_type, profile.occupation]
+    for need in needs or []:
+        context = need.context.strip() if need.context else ""
+        parts.append(context if context else need.need_type)
     return " ".join(part.strip() for part in parts if part and part.strip())
 
 
@@ -107,6 +106,52 @@ def build_scheme_text(scheme: Scheme) -> str:
     """Join the scheme's need-oriented fields (purposes, project types, description)."""
     parts = [*scheme.supported_purposes, *scheme.supported_project_types, scheme.description]
     return " ".join(part.strip() for part in parts if part and part.strip())
+
+
+def assess_representation(
+    profile: UserProfile,
+    needs: list[SupportNeed] | None,
+    scheme: Scheme,
+) -> RepresentationQuality:
+    """Classify representation strength per side from structure only.
+
+    EMPTY means the corresponding builder text is blank (the matcher
+    would skip provider scoring). SPARSE means non-blank text built
+    solely from recognized canonical labels. RICH means at least one
+    free-text component is present: any profile wording, any need
+    context, any unrecognized (verbatim-preserved) need type, or any
+    scheme text at all — supported purposes, project types, and
+    descriptions are all unconstrained author-written text, so a
+    non-blank scheme representation is always RICH. Never a relevance
+    judgment.
+    """
+    user_free = any(
+        part and part.strip() for part in (profile.purpose, profile.project_type, profile.occupation)
+    )
+    for need in needs or []:
+        context = need.context.strip() if need.context else ""
+        if context:
+            user_free = True
+            continue
+        cleaned_type = need.need_type.strip() if need.need_type else ""
+        if not cleaned_type:
+            continue
+        _, recognized = normalize_need_type(need.need_type)
+        if not recognized:
+            user_free = True
+    user_text = build_user_text(profile, needs)
+    if not user_text:
+        user_level = "EMPTY"
+    elif user_free:
+        user_level = "RICH"
+    else:
+        user_level = "SPARSE"
+    scheme_text = build_scheme_text(scheme)
+    if not scheme_text:
+        scheme_level = "EMPTY"
+    else:
+        scheme_level = "RICH"
+    return RepresentationQuality(user=user_level, scheme=scheme_level)
 
 
 def combine_scores(deterministic_score: float, semantic_score: float, semantic_weight: float = 0.3) -> float:
@@ -138,15 +183,21 @@ class SemanticMatcher:
         """Store the injected embedding backend (no vendor coupling)."""
         self.provider = provider
 
-    def score(self, profile: UserProfile, scheme: Scheme) -> SemanticScore:
+    def score(
+        self,
+        profile: UserProfile,
+        scheme: Scheme,
+        needs: list[SupportNeed] | None = None,
+    ) -> SemanticScore:
         """Embed both texts and return the 0-100 semantic fit.
 
         score = round(max(0, cosine) * 100, 2): identical direction -> 100,
         orthogonal/unrelated -> 0, opposites clamp to 0 (fit has no
         negative direction). Empty user/scheme text -> 0.0 without
-        calling the provider (no signal to compare).
+        calling the provider (no signal to compare). Rich need
+        descriptions feed the user text when needs are supplied.
         """
-        user_text = build_user_text(profile)
+        user_text = build_user_text(profile, needs)
         scheme_text = build_scheme_text(scheme)
         if not user_text or not scheme_text:
             return SemanticScore(score=0.0, cosine=0.0, user_text=user_text, scheme_text=scheme_text)

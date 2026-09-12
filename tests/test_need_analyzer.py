@@ -210,3 +210,52 @@ def test_repeated_execution_is_identical() -> None:
     }
     analyzer = NeedAnalyzer(FakeNeedExtractor(payload))
     assert analyzer.analyze("hi").model_dump() == analyzer.analyze("hi").model_dump()
+
+
+def test_rich_description_preserved_with_canonical_type() -> None:
+    """Context keeps full meaning while need_type stays canonical; no purpose field."""
+    analyzer = NeedAnalyzer(
+        FakeNeedExtractor(
+            {
+                "business_goal": "Expand tailoring business",
+                "needs": [
+                    {
+                        "need_type": "machines",
+                        "amount": 500000,
+                        "amount_period": "one_time",
+                        "context": "buy computerized sewing machines to expand my tailoring business",
+                    }
+                ],
+            }
+        )
+    )
+    result = analyzer.analyze("I need money to buy sewing machines for expanding my tailoring business.")
+    need = result.needs[0]
+    assert need.need_type == "machinery"
+    assert need.amount == 500000
+    assert need.context == "buy computerized sewing machines to expand my tailoring business"
+    assert not hasattr(need, "purpose")
+    assert "purpose" not in type(need).model_fields
+
+
+def test_rich_description_without_canonical_category() -> None:
+    """Unmappable kinds keep wording and context; nothing is invented."""
+    analyzer = NeedAnalyzer(
+        FakeNeedExtractor(
+            {
+                "needs": [
+                    {
+                        "need_type": "sewing machine",
+                        "amount": 500000,
+                        "amount_period": "one_time",
+                        "context": "buy computerized sewing machines to expand my tailoring business",
+                    }
+                ],
+            }
+        )
+    )
+    result = analyzer.analyze("I need money to buy sewing machines for expanding my tailoring business.")
+    need = result.needs[0]
+    assert need.need_type == "sewing machine"
+    assert need.amount == 500000
+    assert need.context == "buy computerized sewing machines to expand my tailoring business"

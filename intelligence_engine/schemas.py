@@ -274,6 +274,37 @@ class NearMissResult(_FiniteModel):
     satisfied_criteria: list[str] = Field(default_factory=list)
     total_criteria: int = Field(ge=0)
     reasons: list[str] = Field(default_factory=list)
+    relevance: Optional["SemanticScore"] = Field(default=None)
+    representation_quality: Optional["RepresentationQuality"] = Field(default=None)
+
+
+RepresentationLevel = Literal["EMPTY", "SPARSE", "RICH"]
+
+
+class RepresentationQuality(_FiniteModel):
+    """Structural representation strength, tracked per side independently.
+
+    Describes only whether usable text existed (EMPTY), only
+    fallback/canonical labels existed (SPARSE), or free text existed
+    (RICH). Never a relevance, eligibility, or suitability judgment.
+    """
+
+    user: RepresentationLevel = Field()
+    scheme: RepresentationLevel = Field()
+
+
+class SemanticScore(_FiniteModel):
+    """Structured semantic result (no natural-language claims).
+
+    Pydantic model so scores crossing the future Intelligence API
+    boundary serialize cleanly via model_dump()/model_dump_json().
+    Non-finite floats are rejected like all intelligence contracts.
+    """
+
+    score: float = Field()
+    cosine: float = Field()
+    user_text: str = Field()
+    scheme_text: str = Field()
 
 
 class SupportNeed(_FiniteModel):
@@ -667,3 +698,4 @@ class ClarificationRequest(_FiniteModel):
 
 
 IntelligenceResult.model_rebuild()
+NearMissResult.model_rebuild()

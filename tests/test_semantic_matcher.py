@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from intelligence_engine.schemas import Scheme, UserProfile
+from intelligence_engine.schemas import Scheme, SupportNeed, UserProfile
 from intelligence_engine.semantic_matcher import (
     EmbeddingProvider,
     SemanticMatcher,
@@ -142,3 +142,49 @@ def test_no_external_embedding_provider_required() -> None:
     assert FakeEmbeddingProvider().embed("food business") != [0.0] * len(
         FakeEmbeddingProvider.VOCABULARY
     )
+
+
+def test_build_user_text_includes_rich_need_descriptions() -> None:
+    """Need contexts join the embedded user text after profile fields."""
+    text = build_user_text(
+        UserProfile(purpose="tailoring"),
+        [SupportNeed(need_type="machinery", context="buy sewing machines for expansion")],
+    )
+    assert "tailoring" in text
+    assert "buy sewing machines for expansion" in text
+    assert text.index("tailoring") < text.index("buy sewing machines")
+
+
+def test_rich_description_beats_bare_canonical_type() -> None:
+    """A need with rich context outscores the same need reduced to its type."""
+    matcher = SemanticMatcher(FakeEmbeddingProvider())
+    scheme = Scheme(
+        id="s-food",
+        name="Food scheme",
+        description="Financial assistance for micro-enterprises involved in food processing.",
+        supported_purposes=["food processing business"],
+        supported_project_types=["micro-enterprise"],
+    )
+    rich = matcher.score(
+        UserProfile(),
+        scheme,
+        needs=[SupportNeed(need_type="machinery", context="food processing business loan")],
+    )
+    assert "food processing business loan" in rich.user_text
+    bare = matcher.score(UserProfile(), scheme, needs=[SupportNeed(need_type="machinery")])
+    assert bare.user_text == "machinery"
+    assert rich.score > bare.score
+    assert bare.score == 0.0
+
+
+def test_missing_description_falls_back_safely() -> None:
+    """No needs, empty needs, or context-free needs never crash or invent text."""
+    profile = UserProfile(purpose="tailoring")
+    assert build_user_text(profile) == build_user_text(profile, None) == build_user_text(profile, [])
+    assert build_user_text(UserProfile(), [SupportNeed(need_type="machinery")]) == "machinery"
+    assert build_user_text(UserProfile(), [SupportNeed(need_type="machinery", context="   ")]) == "machinery"
+    matcher = SemanticMatcher(FakeEmbeddingProvider())
+    assert matcher.score(UserProfile(), make_scheme(), []).score == matcher.score(UserProfile(), make_scheme()).score
+    assert matcher.score(UserProfile(), make_scheme(), None).user_text == matcher.score(
+        UserProfile(), make_scheme()
+    ).user_text

@@ -40,7 +40,7 @@ from intelligence_engine.schemas import (
     UserProfile,
     ValueConflict,
 )
-from intelligence_engine.semantic_matcher import SemanticMatcher, combine_scores
+from intelligence_engine.semantic_matcher import SemanticMatcher, assess_representation, combine_scores
 from intelligence_engine.support_planner import SupportPlanningEngine
 from intelligence_engine.transcription import TranscriptionProvider
 
@@ -359,7 +359,7 @@ class IntelligenceOrchestrator:
         by_id = {item.scheme_id: item for item in eligibility}
         eligible = [s for s in schemes if by_id.get(s.id) and by_id[s.id].status == "eligible"]
 
-        ranked = self._rank(profile, schemes, eligibility)
+        ranked = self._rank(profile, schemes, eligibility, needs.needs if needs else None)
         stages.append("matching")
 
         near_by_id = {}
@@ -400,12 +400,18 @@ class IntelligenceOrchestrator:
         for scheme in schemes:
             result = by_id.get(scheme.id)
             match = next((m for m in ranked if m.scheme_id == scheme.id), None)
-            traces = self._scheme_traces(result, match, near_by_id.get(scheme.id), pathways.get(scheme.id))
+            near_miss = self._enrich_near_miss(
+                near_by_id.get(scheme.id),
+                profile,
+                scheme,
+                needs.needs if needs else None,
+            )
+            traces = self._scheme_traces(result, match, near_miss, pathways.get(scheme.id))
             insights.append(
                 SchemeInsights(
                     scheme_id=scheme.id,
                     eligibility=result,
-                    near_miss=near_by_id.get(scheme.id),
+                    near_miss=near_miss,
                     pathway=pathways.get(scheme.id),
                     traces=traces,
                     explanation=self._explain_first(traces) if self.explanation_generator else None,
@@ -463,7 +469,13 @@ class IntelligenceOrchestrator:
             }
         )
 
-    def _rank(self, profile: Any, schemes: list[Scheme], eligibility: list[Any]) -> list[MatchResult]:
+    def _rank(
+        self,
+        profile: Any,
+        schemes: list[Scheme],
+        eligibility: list[Any],
+        needs: list[Any] | None = None,
+    ) -> list[MatchResult]:
         """Deterministic ranking, or hybrid when a semantic matcher is set."""
         if self.semantic_matcher is None or self.semantic_weight == 0:
             ranked = self.matching_engine.rank_schemes(profile, schemes, eligibility)
@@ -476,7 +488,7 @@ class IntelligenceOrchestrator:
             if scheme.id not in eligible_ids:
                 continue
             det_score, det_reasons = self.matching_engine.score_scheme(profile, scheme)
-            sem_score = self.semantic_matcher.score(profile, scheme).score
+            sem_score = self.semantic_matcher.score(profile, scheme, needs).score
             hybrid = combine_scores(det_score, sem_score, self.semantic_weight)
             scored.append(
                 (
@@ -499,6 +511,32 @@ class IntelligenceOrchestrator:
             )
             for rank, (scheme_id, score, det_score, sem_score, reasons) in enumerate(scored, start=1)
         ]
+
+    def _enrich_near_miss(
+        self, result: Any | None, profile: Any, scheme: Scheme, needs: Any | None
+    ) -> Any | None:
+        """Attach semantic relevance to a finalized Near-Miss result.
+
+        Only runs when the passed result already says is_near_miss=True;
+        anything else (including None) is returned untouched, so this
+        method can never qualify, re-rank, or otherwise decide. Requires
+        a configured semantic matcher; provider failures leave
+        relevance None while keeping the computed quality. Stateless.
+        """
+        if result is None or not result.is_near_miss:
+            return result
+        if self.semantic_matcher is None:
+            return result
+        quality = assess_representation(profile, needs, scheme)
+        try:
+            relevance = self.semantic_matcher.score(profile, scheme, needs)
+        except Exception:
+            # Any provider/model failure leaves relevance unknown while
+            # keeping the computed quality; the run continues untouched.
+            return result.model_copy(update={"representation_quality": quality})
+        return result.model_copy(
+            update={"relevance": relevance, "representation_quality": quality}
+        )
 
     def _scheme_traces(
         self, eligibility: Any, match: Any, near_miss: Any, pathway: Any

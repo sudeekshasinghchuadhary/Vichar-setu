@@ -1360,3 +1360,137 @@ def test_conflict_wording_fallback_intact() -> None:
     result = orch.run_hybrid(UserProfile(age=32), [_open_scheme()], user_text="hi")
     assert "32" in result.clarification.questions[0].question
     assert "35" in result.clarification.questions[0].question
+
+
+def _isolation_profile() -> UserProfile:
+    """Profile engineered for exact deterministic/semantic score control."""
+    return UserProfile(
+        age=25,
+        purpose=None,
+        project_type=None,
+        occupation="farm loan officer",
+        state="S",
+        social_category="C",
+    )
+
+
+def _isolation_schemes() -> list[Scheme]:
+    """Two eligible schemes with inverted det/sem profiles, plus excluded ones."""
+    return [
+        Scheme(
+            id="scheme-det",
+            name="Deterministic fit",
+            description="qqq",
+            supported_purposes=["zzz"],
+            supported_project_types=["zzz"],
+            eligibility_rules={
+                "min_age": 18,
+                "occupations": ["farm loan officer"],
+                "states": ["S"],
+                "categories": ["C"],
+            },
+        ),
+        Scheme(
+            id="scheme-sem",
+            name="Semantic fit",
+            description="farm loan micro enterprise",
+            supported_purposes=["zzz"],
+            supported_project_types=["zzz"],
+            eligibility_rules={"min_age": 18},
+        ),
+        Scheme(
+            id="scheme-out",
+            name="Ineligible but relevant",
+            description="farm loan micro enterprise",
+            supported_purposes=["zzz"],
+            eligibility_rules={"occupations": ["zzz"]},
+        ),
+        Scheme(
+            id="scheme-unk",
+            name="Unknown income",
+            description="qqq",
+            supported_purposes=["zzz"],
+            eligibility_rules={"max_annual_income": 300000},
+        ),
+    ]
+
+
+def _isolation_results() -> dict[float, Any]:
+    """Run the same fixture at three materially different weights."""
+    profile = _isolation_profile()
+    schemes = _isolation_schemes()
+    results = {}
+    for weight in (0.0, 0.3, 0.9):
+        orch = _orchestrator(
+            semantic_matcher=SemanticMatcher(FakeEmbeddings()),
+            semantic_weight=weight,
+        )
+        results[weight] = orch.run_from_profile(profile, schemes)
+    return results
+
+
+def test_semantic_weight_isolation_regression() -> None:
+    """Weight may reorder eligible candidates; it must not move anything else.
+
+    EXPECTED: ranking order may change across weights.
+    FORBIDDEN: any change to eligibility states, traces, eligible
+    admission, or Near-Miss membership.
+    """
+    results = _isolation_results()
+    baseline = results[0.0]
+
+    for weight in (0.3, 0.9):
+        result = results[weight]
+        assert [
+            (insight.scheme_id, insight.eligibility.status) for insight in result.schemes
+        ] == [
+            (insight.scheme_id, insight.eligibility.status) for insight in baseline.schemes
+        ]
+        assert [
+            insight.eligibility.reasons for insight in result.schemes
+        ] == [
+            insight.eligibility.reasons for insight in baseline.schemes
+        ]
+        assert [
+            insight.scheme_id for insight in result.schemes
+            if insight.eligibility.status == "eligible"
+        ] == [
+            insight.scheme_id for insight in baseline.schemes
+            if insight.eligibility.status == "eligible"
+        ]
+        assert {
+            insight.scheme_id: (insight.near_miss.is_near_miss if insight.near_miss else None)
+            for insight in result.schemes
+        } == {
+            insight.scheme_id: (insight.near_miss.is_near_miss if insight.near_miss else None)
+            for insight in baseline.schemes
+        }
+        assert all(
+            insight.scheme_id not in {match.scheme_id for match in result.ranked_matches}
+            for insight in result.schemes
+            if insight.eligibility.status != "eligible"
+        )
+
+    assert [match.scheme_id for match in results[0.0].ranked_matches] == ["scheme-det", "scheme-sem"]
+    assert [match.scheme_id for match in results[0.3].ranked_matches] == ["scheme-det", "scheme-sem"]
+    assert [match.scheme_id for match in results[0.9].ranked_matches] == ["scheme-sem", "scheme-det"]
+    assert results[0.9].ranked_matches[0].score == 63.64
+    assert results[0.9].ranked_matches[1].score == 10.0
+    assert results[0.0].ranked_matches[0].score == 100.0
+    assert results[0.0].ranked_matches[1].score == 0.0
+
+
+def test_eligible_zero_semantic_still_ranked_CURRENT_BEHAVIOR_PENDING_POLICY() -> None:
+    """CURRENT BEHAVIOR (pending product policy, not final specification).
+
+    Today an eligible scheme with zero semantic relevance is still
+    ranked: there is no relevance floor. Whether eligible-but-irrelevant
+    schemes should be surfaced, flagged, or suppressed is an open
+    product-policy question; update this test when it is decided.
+    """
+    results = _isolation_results()
+    det_match = next(
+        match for match in results[0.9].ranked_matches if match.scheme_id == "scheme-det"
+    )
+    assert det_match.semantic_score == 0.0
+    assert det_match.rank == 2
