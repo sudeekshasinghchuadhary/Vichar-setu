@@ -8,12 +8,80 @@ decisions. Never asks for anything the current result does not require;
 never converts unknowns into assumptions.
 """
 
+from typing import Literal
+
 from intelligence_engine.schemas import (
     ClarificationQuestion,
     ClarificationRequest,
     IntelligenceResult,
+    SchemeSupport,
+    SupportNeed,
     ValueConflict,
 )
+
+FinancialUnknownCause = Literal[
+    "need_amount_unknown",
+    "need_period_unknown",
+    "support_amount_unknown",
+    "no_period_matched_support",
+    "period_mismatch",
+]
+
+
+def classify_financial_unknown(
+    need: SupportNeed, supports: list[SchemeSupport]
+) -> FinancialUnknownCause | None:
+    """Classify why financial analysis cannot run for one need, if at all.
+
+    Pure structural check over already-available data, using the same
+    candidate-support contract as FinancialIntelligence.coverage_for_need
+    (supports already filtered to the need; eligibility filtering is the
+    caller's concern). Returns None when analysis can run. Never
+    computes, never asks, never guesses, never converts unknown to zero.
+    """
+    if need.amount is None:
+        return "need_amount_unknown"
+    if need.amount_period == "unknown":
+        return "need_period_unknown"
+    relevant = [s for s in supports if need.need_type in s.covers_need_types]
+    matched = [s for s in relevant if s.max_amount_period == need.amount_period]
+    if not matched:
+        if any(s.max_amount_period != "unknown" for s in relevant):
+            return "period_mismatch"
+        return "no_period_matched_support"
+    if all(s.max_amount is None for s in matched):
+        return "support_amount_unknown"
+    return None
+
+
+def _eligible_supports_by_need(
+    result: IntelligenceResult,
+) -> dict[tuple[str, str], list[SchemeSupport]]:
+    """Rebuild coverage_for_need-style candidates from the support plan.
+
+    Uses SupportMapping evidence already in the result (eligible schemes
+    only, mirroring the orchestrator's coverage input). Fields copy 1:1;
+    nothing is invented. A missing plan falls back to no candidates,
+    which classifies as scheme-side unknown and therefore asks nothing.
+    """
+    grouped: dict[tuple[str, str], list[SchemeSupport]] = {}
+    plan = result.support_plan
+    if plan is None:
+        return grouped
+    for need_plan in plan.need_plans:
+        key = (need_plan.need.need_type, need_plan.need.amount_period)
+        supports = [
+            SchemeSupport(
+                support_type=mapping.support_type,
+                covers_need_types=[need_plan.need.need_type],
+                max_amount=mapping.max_amount,
+                max_amount_period=mapping.max_amount_period,
+            )
+            for mapping in need_plan.mappings
+            if mapping.eligibility_status == "eligible"
+        ]
+        grouped.setdefault(key, []).extend(supports)
+    return grouped
 
 _FIELD_QUESTIONS: dict[str, str] = {
     "age": "How old are you?",
@@ -63,18 +131,27 @@ def build_clarification(result: IntelligenceResult) -> ClarificationRequest | No
                 _add(field, _field_question(field))
 
     if result.needs is not None:
+        supports_by_need = _eligible_supports_by_need(result)
         for index, need in enumerate(result.needs.needs):
-            if need.amount is None:
+            cause = classify_financial_unknown(
+                need, supports_by_need.get((need.need_type, need.amount_period), [])
+            )
+            if cause == "need_amount_unknown":
                 _add(
                     f"needs[{index}].amount",
                     f"Approximately how much funding/support is required for '{need.need_type}'?",
                 )
-            elif need.amount_period == "unknown":
+            elif cause == "need_period_unknown":
                 _add(
                     f"needs[{index}].amount_period",
                     f"Is the {need.amount:g} for '{need.need_type}' needed "
                     "one-time, monthly, or annually?",
                 )
+            # Scheme-side causes (support_amount_unknown,
+            # no_period_matched_support, period_mismatch) intentionally
+            # ask nothing: the user cannot fix backend support data.
+            # Routing is exactly equivalent to the previous field checks:
+            # need-side unknowns ask, everything else stays silent.
 
     if not missing:
         return None

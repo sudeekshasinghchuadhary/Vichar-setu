@@ -241,6 +241,40 @@ def test_financial_period_mismatch_end_to_end() -> None:
     assert result.support_plan.need_plans[0].best_known_coverage is None
 
 
+class AmountlessNeeds(NeedExtractor):
+    """Machinery need without an amount (unknown stays unknown)."""
+
+    def extract_need_data(self, user_text: str) -> dict[str, Any]:
+        """Return the scenario need minus its amount."""
+        return {
+            "business_goal": "Expand tailoring business",
+            "needs": [{"need_type": "machinery"}],
+        }
+
+
+def test_financial_unknown_asks_then_reruns_known() -> None:
+    """Unknown amount asks needs[0].amount; answered rerun covers; verdicts untouched."""
+    unknown = _orchestrator(need_analyzer=NeedAnalyzer(AmountlessNeeds())).run(
+        TEXT, [_tailoring_support()]
+    )
+    assert unknown.coverage_results[0].coverage_known is False
+    assert unknown.coverage_results[0].covered is None
+    assert unknown.clarification is not None
+    assert "needs[0].amount" in unknown.clarification.missing_fields
+    complete = _orchestrator().run(TEXT, [_tailoring_support()])
+    assert [
+        (insight.scheme_id, insight.eligibility.status) for insight in unknown.schemes
+    ] == [
+        (insight.scheme_id, insight.eligibility.status) for insight in complete.schemes
+    ]
+    assert [m.scheme_id for m in unknown.ranked_matches] == [
+        m.scheme_id for m in complete.ranked_matches
+    ]
+    assert unknown.ranked_matches[0].score == complete.ranked_matches[0].score
+    assert complete.coverage_results[0].coverage_known is True
+    assert complete.coverage_results[0].covered == 500000
+
+
 def test_missing_and_unknown_documents() -> None:
     """Explicitly missing blocks; unmentioned stays unknown (never missing)."""
     orch = _orchestrator()
