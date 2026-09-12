@@ -151,23 +151,31 @@ def merge_inputs(
     extracted_needs: list[SupportNeed] | None = None,
     business_goal: str | None = None,
     exclude_need_keys: frozenset[tuple[str, str]] = frozenset(),
+    notes: list[str] | None = None,
 ) -> tuple[UserProfile, NeedAnalysisResult | None]:
     """Merge all hybrid inputs into canonical (profile, needs-or-None.
 
     Returns None for needs when both sources are empty, preserving the
     existing convention that absent needs skip support/financial stages.
     Keys in exclude_need_keys stay out of merged needs (disputed amounts
-    await user confirmation instead).
+    await user confirmation instead). Analyzer transparency notes are
+    preserved verbatim (deduplicated, order kept); nothing is invented.
     """
     profile = merge_profiles(form_profile, extracted_profile)
     merged_needs = merge_needs(form_needs, extracted_needs, exclude_need_keys)
     if not merged_needs:
         return profile, None
+    merged_notes: list[str] = []
+    seen_notes: set[str] = set()
+    for note in notes or []:
+        if note not in seen_notes:
+            seen_notes.add(note)
+            merged_notes.append(note)
     return profile, NeedAnalysisResult(
         business_goal=business_goal,
         needs=merged_needs,
         total_requested=total_one_time(merged_needs),
-        notes=[],
+        notes=merged_notes,
     )
 
 

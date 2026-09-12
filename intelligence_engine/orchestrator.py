@@ -263,12 +263,14 @@ class IntelligenceOrchestrator:
         extracted_profile = None
         extracted_needs: list[SupportNeed] = []
         goal: str | None = None
+        analyzed_notes: list[str] = []
         if text is not None:
             extracted_profile = self.profile_processor.process_profile(text)
             if self.need_analyzer is not None:
                 analyzed = self.need_analyzer.analyze(text)
                 extracted_needs = list(analyzed.needs)
                 goal = analyzed.business_goal
+                analyzed_notes = list(analyzed.notes)
 
         if extracted_profile is not None:
             conflicts = detect_conflicts(form_profile, extracted_profile)
@@ -277,11 +279,12 @@ class IntelligenceOrchestrator:
             if all_conflicts:
                 return self._conflict_result(
                     form_profile, extracted_profile, form_needs, extracted_needs, goal,
-                    all_conflicts, text, wording_hint,
+                    all_conflicts, text, wording_hint, analyzed_notes,
                 )
 
         profile, needs = merge_inputs(
-            form_profile, extracted_profile, form_needs, extracted_needs, goal
+            form_profile, extracted_profile, form_needs, extracted_needs, goal,
+            notes=analyzed_notes,
         )
         stages = ["profile"]
         if needs is not None:
@@ -301,12 +304,14 @@ class IntelligenceOrchestrator:
         conflicts: list[ValueConflict],
         text: str | None,
         wording_hint: str | None,
+        notes: list[str] | None = None,
     ) -> IntelligenceResult:
         """Return clarification for disputed inputs without running engines.
 
         Non-disputed fields still merge normally; conflicting profile
         fields resolve to None (genuinely unknown) and disputed need
-        amounts stay out of merged needs. No eligibility, matching,
+        amounts stay out of merged needs. Analyzer transparency notes are
+        preserved through the re-merge. No eligibility, matching,
         financial, support, or pathway logic executes on disputed data.
         """
         merged = merge_profiles(form_profile, extracted_profile)
@@ -321,6 +326,7 @@ class IntelligenceOrchestrator:
         _, needs = merge_inputs(
             form_profile, None, form_needs, extracted_needs, goal,
             exclude_need_keys=excluded_keys,
+            notes=notes,
         )
         stages = ["profile"]
         if needs is not None:

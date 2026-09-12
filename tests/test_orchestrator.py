@@ -1494,3 +1494,70 @@ def test_eligible_zero_semantic_still_ranked_CURRENT_BEHAVIOR_PENDING_POLICY() -
     )
     assert det_match.semantic_score == 0.0
     assert det_match.rank == 2
+
+
+class _UnrecognizedNeeds(NeedExtractor):
+    """Extractor returning an unrecognized need_type to produce a notes entry."""
+
+    def extract_need_data(self, user_text: str) -> dict[str, Any]:
+        """Return a free-text need regardless of input."""
+        return {
+            "business_goal": "Expand tailoring business",
+            "needs": [
+                {
+                    "need_type": "sewing machine",
+                    "amount": 500000,
+                    "amount_period": "one_time",
+                    "context": "buy sewing machines for tailoring",
+                }
+            ],
+        }
+
+
+def _notes_orchestrator(**overrides: Any) -> IntelligenceOrchestrator:
+    """Orchestrator whose need analysis always yields the transparency note."""
+    parts: dict[str, Any] = {
+        "profile_processor": ProfileProcessor(FakeLLM()),
+        "need_analyzer": NeedAnalyzer(_UnrecognizedNeeds()),
+    }
+    parts.update(overrides)
+    return IntelligenceOrchestrator(**parts)
+
+
+def test_hybrid_merge_preserves_analyzer_notes() -> None:
+    """Normal hybrid merge keeps 'Unrecognized need type kept as stated'."""
+    from intelligence_engine.input_merger import merge_inputs
+
+    analyzed = NeedAnalyzer(_UnrecognizedNeeds()).analyze("need sewing machines")
+    assert any("Unrecognized need type kept as stated" in note for note in analyzed.notes)
+    _, merged = merge_inputs(
+        UserProfile(), None, None, analyzed.needs, analyzed.business_goal,
+        notes=analyzed.notes,
+    )
+    assert merged is not None
+    assert merged.notes == analyzed.notes
+    assert merged.needs[0].need_type == "sewing machine"
+    assert merged.needs[0].amount == 500000
+
+
+def test_normal_hybrid_run_preserves_analyzer_notes() -> None:
+    """End-to-end hybrid run without conflicts preserves analyzer notes."""
+    result = _notes_orchestrator().run_hybrid(UserProfile(), [_open_scheme()], user_text="need sewing machines")
+    assert result.clarification is None
+    assert result.needs is not None
+    assert any("Unrecognized need type kept as stated" in note for note in result.needs.notes)
+    assert result.needs.needs[0].need_type == "sewing machine"
+
+
+def test_conflict_remerge_preserves_analyzer_notes() -> None:
+    """Conflict flow re-merge keeps notes while conflict behavior is unchanged."""
+    form = UserProfile(age=32)
+    result = _notes_orchestrator().run_hybrid(form, [_open_scheme()], user_text="need sewing machines")
+    assert result.clarification is not None
+    assert [q.field for q in result.clarification.questions] == ["age"]
+    assert result.ranked_matches == []
+    assert result.schemes == []
+    assert result.needs is not None
+    assert any("Unrecognized need type kept as stated" in note for note in result.needs.notes)
+    assert result.needs.needs[0].need_type == "sewing machine"
+    assert result.profile.age is None
