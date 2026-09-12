@@ -483,12 +483,27 @@ class IntelligenceOrchestrator:
                 match.deterministic_score = match.score
             return ranked
         eligible_ids = {r.scheme_id for r in eligibility if r.status == "eligible"}
-        scored: list[tuple[str, float, float, float, list[str]]] = []
+        scored: list[tuple[str, float, float, float | None, list[str]]] = []
         for scheme in schemes:
             if scheme.id not in eligible_ids:
                 continue
             det_score, det_reasons = self.matching_engine.score_scheme(profile, scheme)
-            sem_score = self.semantic_matcher.score(profile, scheme, needs).score
+            try:
+                sem_score = self.semantic_matcher.score(profile, scheme, needs).score
+            except Exception:
+                # Per-scheme degradation (mirrors _enrich_near_miss): keep
+                # deterministic evidence, leave semantic unavailable (None,
+                # never fabricated as 0.0), and continue ranking the rest.
+                scored.append(
+                    (
+                        scheme.id,
+                        det_score,
+                        det_score,
+                        None,
+                        [*det_reasons, "Semantic scoring unavailable; ranked on deterministic fit."],
+                    )
+                )
+                continue
             hybrid = combine_scores(det_score, sem_score, self.semantic_weight)
             scored.append(
                 (

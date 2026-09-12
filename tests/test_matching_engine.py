@@ -252,3 +252,75 @@ def test_components_do_not_change_ranking() -> None:
         ).run_from_profile(profile, schemes).ranked_matches
     ]
     assert det_order == hybrid_order == ["scheme-full", "scheme-weak"]
+
+
+class _FailForMarkerEmbeddings(EmbeddingProvider):
+    """Raises for scheme texts containing the marker; fixed vector otherwise."""
+
+    MARKER = "boom-marker"
+
+    def embed(self, text: str) -> list[float]:
+        """Raise on marker text, else return a fixed non-zero vector."""
+        if self.MARKER in text:
+            raise RuntimeError("boom")
+        return [1.0, 2.0, 3.0]
+
+
+def _failing_pair_schemes() -> list[Scheme]:
+    """One healthy full-match scheme plus one whose semantic text raises."""
+    ok_scheme = _full_match_scheme().model_copy(update={"id": "scheme-aa-ok"})
+    fail_scheme = _full_match_scheme().model_copy(
+        update={"id": "scheme-zz-fail", "description": "support boom-marker"}
+    )
+    return [ok_scheme, fail_scheme]
+
+
+def test_semantic_failure_for_one_scheme_does_not_fail_run() -> None:
+    """One raising scheme still returns a full ranking for all eligible schemes."""
+    orch = _orchestrator(
+        semantic_matcher=SemanticMatcher(_FailForMarkerEmbeddings()), semantic_weight=0.25
+    )
+    result = orch.run_from_profile(_full_match_profile(), _failing_pair_schemes())
+    assert {m.scheme_id for m in result.ranked_matches} == {"scheme-aa-ok", "scheme-zz-fail"}
+
+
+def test_semantic_failure_preserves_deterministic_and_leaves_semantic_none() -> None:
+    """Failed scheme keeps deterministic score/reasons; semantic stays None, not 0.0."""
+    orch = _orchestrator(
+        semantic_matcher=SemanticMatcher(_FailForMarkerEmbeddings()), semantic_weight=0.25
+    )
+    result = orch.run_from_profile(_full_match_profile(), _failing_pair_schemes())
+    by_id = {m.scheme_id: m for m in result.ranked_matches}
+    failed = by_id["scheme-zz-fail"]
+    healthy = by_id["scheme-aa-ok"]
+    assert failed.deterministic_score == 100.0
+    assert failed.score == 100.0
+    assert failed.semantic_score is None
+    assert failed.semantic_score != 0.0
+    assert any("Purpose" in reason for reason in failed.reasons)
+    assert not any("Semantic fit" in reason for reason in failed.reasons)
+    assert healthy.deterministic_score == 100.0
+    assert healthy.semantic_score == 100.0
+    assert healthy.score == 100.0
+
+
+def test_semantic_failure_ranking_uses_existing_sort_rules() -> None:
+    """Failed (det fallback 100) and healthy (hybrid 100) tie-break by scheme_id."""
+    orch = _orchestrator(
+        semantic_matcher=SemanticMatcher(_FailForMarkerEmbeddings()), semantic_weight=0.25
+    )
+    result = orch.run_from_profile(_full_match_profile(), _failing_pair_schemes())
+    assert [m.scheme_id for m in result.ranked_matches] == ["scheme-aa-ok", "scheme-zz-fail"]
+    assert [m.rank for m in result.ranked_matches] == [1, 2]
+
+
+def test_deterministic_only_path_ignores_failing_provider() -> None:
+    """Weight 0.0 never invokes semantic scoring, so a raising provider is inert."""
+    orch = _orchestrator(
+        semantic_matcher=SemanticMatcher(_FailForMarkerEmbeddings()), semantic_weight=0.0
+    )
+    result = orch.run_from_profile(_full_match_profile(), _failing_pair_schemes())
+    assert len(result.ranked_matches) == 2
+    for match in result.ranked_matches:
+        assert match.deterministic_score == match.score == 100.0
+        assert match.semantic_score is None
