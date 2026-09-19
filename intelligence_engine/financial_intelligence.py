@@ -100,21 +100,84 @@ class FinancialIntelligence:
             )
         return self.coverage(float(need.amount), options)
 
-    def loan_schedule(self, terms: LoanTerms) -> LoanResult:
+    def loan_schedule(
+        self,
+        terms: LoanTerms,
+        moratorium_months: int | None = None,
+        moratorium_interest_accrues: bool | None = None,
+    ) -> LoanResult:
         """Standard amortizing EMI: P*r*(1+r)^n/((1+r)^n-1), r = annual/1200.
 
         Zero interest yields principal/tenure exactly. No affordability
         claim is made from these outputs alone.
+
+        Moratorium: the first ``moratorium_months`` months carry no EMI.
+        tenure_months is the TOTAL period including the holiday, so EMI
+        is amortized over ``repayment_months = tenure - moratorium``.
+        Whether interest accrues during the holiday is an explicit
+        parameter (never an assumption): True capitalizes interest
+        onto the principal (P' = P*(1+r)^m); False waives it (P' = P).
+        Explicit kwargs override the LoanTerms fields when given.
+        moratorium=0 reproduces the legacy result exactly, plus the
+        new echo fields.
         """
+        m = terms.moratorium_months if moratorium_months is None else moratorium_months
+        accrues = (
+            terms.moratorium_interest_accrues
+            if moratorium_interest_accrues is None
+            else moratorium_interest_accrues
+        )
+        if not isinstance(m, int) or isinstance(m, bool) or not 0 <= m <= 12:
+            raise FinancialError("moratorium_months must be an integer in 0-12.")
+        if not isinstance(accrues, bool):
+            raise FinancialError("moratorium_interest_accrues must be an explicit bool.")
         months = terms.tenure_months
-        if terms.annual_rate_percent == 0:
-            emi = _round_money(terms.principal / months)
-            return LoanResult(monthly_emi=emi, total_payable=_round_money(emi * months), total_interest=0.0)
+        if m >= months:
+            raise FinancialError("moratorium_months must be less than tenure_months.")
+        if m == 0:
+            base = self._amortize(terms.principal, terms.annual_rate_percent, months)
+            return LoanResult(
+                monthly_emi=base[0],
+                total_payable=base[1],
+                total_interest=base[2],
+                moratorium_months=0,
+                moratorium_interest_accrues=accrues,
+                post_moratorium_emi=base[0],
+                repayment_months=months,
+            )
         rate = terms.annual_rate_percent / 1200.0
+        if terms.annual_rate_percent == 0 or not accrues:
+            effective_principal = float(terms.principal)
+        else:
+            effective_principal = float(terms.principal) * ((1 + rate) ** m)
+        repayment = months - m
+        emi, repay_total, repay_interest = self._amortize(
+            effective_principal, terms.annual_rate_percent, repayment
+        )
+        total = repay_total  # no payments during the holiday
+        interest = _round_money(total - float(terms.principal))
+        interest = max(0.0, interest)  # rounding dust on zero-rate splits never goes negative
+        return LoanResult(
+            monthly_emi=emi,
+            total_payable=total,
+            total_interest=interest,
+            moratorium_months=m,
+            moratorium_interest_accrues=accrues,
+            post_moratorium_emi=emi,
+            repayment_months=repayment,
+        )
+
+    @staticmethod
+    def _amortize(principal: float, annual_rate_percent: float, months: int) -> tuple[float, float, float]:
+        """Amortize a principal over months; returns (emi, total, interest)."""
+        if annual_rate_percent == 0:
+            emi = _round_money(principal / months)
+            return emi, _round_money(emi * months), 0.0
+        rate = annual_rate_percent / 1200.0
         factor = (1 + rate) ** months
-        emi = _round_money(terms.principal * rate * factor / (factor - 1))
+        emi = _round_money(principal * rate * factor / (factor - 1))
         total = _round_money(emi * months)
-        return LoanResult(monthly_emi=emi, total_payable=total, total_interest=_round_money(total - terms.principal))
+        return emi, total, _round_money(total - principal)
 
     def compare(self, options: list[FinancialOption]) -> OptionComparison:
         """Rank known-amount options highest-first; unknowns stay unranked."""
