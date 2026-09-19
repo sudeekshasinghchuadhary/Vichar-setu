@@ -146,6 +146,65 @@ class ChannelInfo(_FiniteModel):
     link: Optional[str] = Field(default=None)
 
 
+PartnerType = Literal["SCA", "PSB", "RRB", "NBFC_MFI", "COOPERATIVE_BANK", "OTHER"]
+
+PartnerMatchTier = Literal[
+    "NEAREST_BY_DISTANCE", "EXACT_DISTRICT", "STATE_LEVEL", "TYPE_ONLY_NO_LISTING"
+]
+
+
+class ChannelPartner(_FiniteModel):
+    """One channel-partner record (bank/MFI/cooperative/etc.).
+
+    No partner data is ever fabricated: optional fields stay None when
+    unknown, and latitude/longitude are populated only when actually
+    known. source/source_date record provenance for the listing.
+    """
+
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    partner_type: PartnerType = Field()
+    state: Optional[str] = Field(default=None)
+    district: Optional[str] = Field(default=None)
+    address: Optional[str] = Field(default=None)
+    contact: Optional[str] = Field(default=None)
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    source: Optional[str] = Field(default=None)
+    source_date: Optional[str] = Field(default=None)
+
+
+class PartnerMatch(_FiniteModel):
+    """One matched partner with an optional computed distance.
+
+    distance_km is populated ONLY when both user and partner
+    coordinates were available and a Haversine distance was actually
+    computed. It is None in every other tier — the word "nearest"
+    must never appear without this value.
+    """
+
+    partner: ChannelPartner = Field()
+    distance_km: Optional[float] = Field(default=None, ge=0)
+
+
+class PartnerMatchResult(_FiniteModel):
+    """Tiered partner-matching outcome (info only, never eligibility).
+
+    tier: NEAREST_BY_DISTANCE (distance-sorted, distance_km present),
+        EXACT_DISTRICT (same district, right type), STATE_LEVEL (same
+        state, right type), or TYPE_ONLY_NO_LISTING (no partner found;
+        required_partner_type carries guidance instead).
+    required_partner_type: The scheme's required partner type, always
+        echoed so the caller never ends up with "unavailable" + nothing.
+    Partner availability never affects eligibility results.
+    """
+
+    tier: PartnerMatchTier = Field()
+    required_partner_type: PartnerType = Field()
+    matches: list[PartnerMatch] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
+
+
 class DocumentCheck(_FiniteModel):
     """One required document with its conservative status.
 
@@ -467,11 +526,23 @@ class FinancialOption(_FiniteModel):
 
 
 class LoanTerms(_FiniteModel):
-    """Explicit loan inputs. All three are required; nothing is assumed."""
+    """Explicit loan inputs. All three are required; nothing is assumed.
+
+    moratorium_months: Repayment holiday in months (0-12, default 0).
+        During the moratorium no EMI is paid.
+    moratorium_interest_accrues: Explicit policy for the moratorium
+        (never assumed). True means interest capitalizes onto the
+        principal during the holiday; False means interest is
+        waived/forgiven during the holiday and the principal is
+        unchanged. Must always be stated by the caller when a
+        moratorium is used.
+    """
 
     principal: float = Field(gt=0)
     annual_rate_percent: float = Field(ge=0)
     tenure_months: int = Field(ge=1)
+    moratorium_months: int = Field(default=0, ge=0, le=12)
+    moratorium_interest_accrues: bool = Field(default=True)
 
 
 class LoanResult(_FiniteModel):
@@ -479,11 +550,25 @@ class LoanResult(_FiniteModel):
 
     No affordability claim: affordability needs income/expense data plus
     an explicit rule, neither of which lives here.
+
+    monthly_emi: Post-moratorium EMI (equals post_moratorium_emi;
+        kept for backward compatibility). Zero only when there is no
+        repayment (never the case — moratorium < tenure is enforced).
+    moratorium_months: Echo of the holiday applied (0 when none).
+    moratorium_interest_accrues: Echo of the stated interest policy.
+    post_moratorium_emi: EMI paid after the holiday (None only if it
+        could not apply — kept explicit; equals monthly_emi here).
+    repayment_months: Number of months EMI is actually paid
+        (tenure_months minus moratorium_months).
     """
 
     monthly_emi: float = Field(ge=0)
     total_payable: float = Field(ge=0)
     total_interest: float = Field(ge=0)
+    moratorium_months: int = Field(default=0, ge=0, le=12)
+    moratorium_interest_accrues: bool = Field(default=True)
+    post_moratorium_emi: Optional[float] = Field(default=None, ge=0)
+    repayment_months: Optional[int] = Field(default=None, ge=1)
 
 
 class CoverageResult(_FiniteModel):
@@ -599,6 +684,11 @@ class IntelligenceResult(_FiniteModel):
     coverage_results carries standalone coverage computations.
     clarification holds a deterministic follow-up request when the run
     left genuinely missing inputs, else None (never faked).
+    source_text holds the original pre-translation wording when the
+    optional language-preprocessing stage ran (else None); the
+    translated representation actually sent to extraction lives in
+    translated_text. Both are audit/debug slots only — no decision
+    engine reads them.
     """
 
     profile: Optional[UserProfile] = Field(default=None)
@@ -611,6 +701,8 @@ class IntelligenceResult(_FiniteModel):
     explanations: list[GeneratedExplanation] = Field(default_factory=list)
     clarification: Optional["ClarificationRequest"] = Field(default=None)
     stages_completed: list[str] = Field(default_factory=list)
+    source_text: Optional[str] = Field(default=None)
+    translated_text: Optional[str] = Field(default=None)
 
     @classmethod
     def from_pipeline_result(cls, result: "PipelineResult") -> "IntelligenceResult":
@@ -651,6 +743,36 @@ class TranscriptionResult(_FiniteModel):
         cleaned = " ".join(value.split())
         if not cleaned:
             raise ValueError("transcript text must be non-empty.")
+        return cleaned
+
+
+class TranslationResult(_FiniteModel):
+    """Validated text-translation output (both sides preserved).
+
+    original_text: Source-language wording with whitespace collapsed;
+        never discarded or overwritten by the translation.
+    translated_text: Target-language wording with whitespace collapsed;
+        empty translations are rejected (a provider failure, not a
+        silent fallback to the original).
+    source_language: Explicit source language code (e.g. "hi"); None
+        only when the caller did not state one — never detected here.
+    target_language: Target language code (default "en").
+    No profile/need information is added here; translation quality
+    itself is NOT validated (mocked tests prove plumbing only).
+    """
+
+    original_text: str = Field(min_length=1)
+    translated_text: str = Field(min_length=1)
+    source_language: Optional[str] = Field(default=None)
+    target_language: str = Field(default="en")
+
+    @field_validator("original_text", "translated_text")
+    @classmethod
+    def _collapse_whitespace(cls, value: str) -> str:
+        """Collapse whitespace without changing wording."""
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("translation text must be non-empty.")
         return cleaned
 
 

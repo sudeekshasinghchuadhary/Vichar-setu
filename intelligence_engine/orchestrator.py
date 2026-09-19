@@ -43,6 +43,25 @@ from intelligence_engine.schemas import (
 from intelligence_engine.semantic_matcher import SemanticMatcher, assess_representation, combine_scores
 from intelligence_engine.support_planner import SupportPlanningEngine
 from intelligence_engine.transcription import TranscriptionProvider
+from intelligence_engine.translation import TranslationProvider
+
+
+def _primary_subtag(language: str | None) -> str:
+    """Primary subtag of a language tag ("hi-IN" -> "hi"); "" when absent."""
+    hint = (language or "").strip().lower()
+    if not hint:
+        return ""
+    return hint.replace("_", "-").split("-")[0]
+
+
+def _needs_translation(source_language: str | None) -> bool:
+    """True only for an explicit non-English source language.
+
+    English (any "en*" tag), missing, or blank sources never translate:
+    no language detection is performed anywhere.
+    """
+    tag = _primary_subtag(source_language)
+    return bool(tag) and tag != "en"
 
 
 def _has_pathway_data(scheme: Scheme) -> bool:
@@ -74,6 +93,8 @@ class IntelligenceOrchestrator:
         explanation_generator: ExplanationGenerator | None = None,
         clarification_generator: Any = None,
         transcription_provider: TranscriptionProvider | None = None,
+        translation_provider: TranslationProvider | None = None,
+        translation_enabled: bool = False,
     ) -> None:
         """Store injected components (defaults are real engines, never vendors).
 
@@ -82,6 +103,13 @@ class IntelligenceOrchestrator:
             semantic_weight: Hybrid weight in 0-1; 0 keeps pure
                 deterministic ranking. Positive weight requires a
                 semantic_matcher, else misconfiguration raises.
+            translation_provider: Optional language-preprocessing backend
+                (e.g. BHASHINI NMT). Used only when translation_enabled
+                is True AND the caller supplies an explicit non-English
+                source_language; otherwise text flows to extraction
+                exactly as before.
+            translation_enabled: Opt-in NMT flag (default False — current
+                default behavior unchanged).
         """
         if semantic_weight and semantic_matcher is None:
             raise ValueError("semantic_weight > 0 requires a semantic_matcher.")
@@ -101,6 +129,8 @@ class IntelligenceOrchestrator:
         self.explanation_generator = explanation_generator
         self.clarification_generator = clarification_generator
         self.transcription_provider = transcription_provider
+        self.translation_provider = translation_provider
+        self.translation_enabled = translation_enabled
 
     def run(
         self,
@@ -108,6 +138,7 @@ class IntelligenceOrchestrator:
         schemes: list[Scheme],
         document_availability: dict[str, Any] | None = None,
         language_hint: str | None = None,
+        source_language: str | None = None,
     ) -> IntelligenceResult:
         """Run the full flow and assemble the product result.
 
@@ -118,12 +149,60 @@ class IntelligenceOrchestrator:
                 forwarded untouched to pathway planning.
             language_hint: Optional wording hint forwarded ONLY to
                 clarification wording. Never decision input.
+            source_language: Optional explicit source language (e.g.
+                "hi"). Translation runs only when the orchestrator was
+                built with translation_enabled=True, a
+                translation_provider, AND this is a non-English tag.
+                English/missing sources keep existing behavior exactly.
 
         Returns:
             IntelligenceResult with accurately recorded stages_completed.
         """
         stages: list[str] = []
-        return self._run_text(user_text, schemes, document_availability, stages, language_hint)
+        return self._run_text(user_text, schemes, document_availability, stages, language_hint, source_language)
+
+    def _preprocess_language(
+        self, text: str, source_language: str | None
+    ) -> tuple[str, Any | None]:
+        """Optionally translate text; return (extraction_text, translation).
+
+        Returns the input unchanged with None when translation is
+        disabled, unconfigured, or the source is English/missing (no
+        detection anywhere). On success the translated English text is
+        returned for extraction alongside the TranslationResult that
+        preserves the original. Provider failures raise
+        TranslationError (fail-closed): never fabricated English, never
+        a silent fallback to the untranslated input.
+        """
+        from intelligence_engine.translation import TranslationError
+
+        if not self.translation_enabled or self.translation_provider is None:
+            return text, None
+        if not _needs_translation(source_language):
+            return text, None
+        try:
+            result = self.translation_provider.translate(text, _primary_subtag(source_language))
+        except TranslationError:
+            raise
+        except Exception as exc:
+            raise TranslationError(
+                f"Translation provider failed: {type(exc).__name__}: {exc}"
+            ) from exc
+        return result.translated_text, result
+
+    @staticmethod
+    def _retain_translation(
+        result: IntelligenceResult, translation: Any | None
+    ) -> IntelligenceResult:
+        """Record original + translated wording on the result (audit slots)."""
+        if translation is None:
+            return result
+        return result.model_copy(
+            update={
+                "source_text": translation.original_text,
+                "translated_text": translation.translated_text,
+            }
+        )
 
     def _run_text(
         self,
@@ -132,20 +211,25 @@ class IntelligenceOrchestrator:
         document_availability: dict[str, Any] | None,
         stages: list[str],
         language_hint: str | None,
+        source_language: str | None = None,
     ) -> IntelligenceResult:
-        """Shared text pipeline: profile/needs extraction, then _execute."""
-        profile = self.profile_processor.process_profile(user_text)
+        """Shared text pipeline: optional NMT, then profile/needs extraction, then _execute."""
+        extract_text, translation = self._preprocess_language(user_text, source_language)
+        if translation is not None:
+            stages.append("translation")
+        profile = self.profile_processor.process_profile(extract_text)
         stages.append("profile")
 
         needs = None
         if self.need_analyzer is not None:
-            needs = self.need_analyzer.analyze(user_text)
+            needs = self.need_analyzer.analyze(extract_text)
             stages.append("needs")
 
-        return self._execute(
+        result = self._execute(
             profile, needs, schemes, document_availability, stages, user_text,
             language_hint=language_hint,
         )
+        return self._retain_translation(result, translation)
 
     def run_from_audio(
         self,
@@ -153,6 +237,7 @@ class IntelligenceOrchestrator:
         schemes: list[Scheme],
         document_availability: dict[str, Any] | None = None,
         language_hint: str | None = None,
+        source_language: str | None = None,
     ) -> IntelligenceResult:
         """Run the identical text pipeline from transcribed audio.
 
@@ -164,6 +249,10 @@ class IntelligenceOrchestrator:
             document_availability: Forwarded untouched to pathway planning.
             language_hint: Caller hint passed to transcription and used
                 only when the provider reports no language of its own.
+            source_language: Optional explicit NMT source language;
+                when omitted, the provider-reported transcript language
+                is used. Translation still runs only when explicitly
+                enabled with a provider and a non-English source.
 
         Returns:
             IntelligenceResult identical in shape to run(); wording
@@ -173,6 +262,7 @@ class IntelligenceOrchestrator:
             ValueError: When no transcription provider was injected.
             TranscriptionError: Propagated unchanged on empty audio,
                 empty transcripts, or provider failures (no partial result).
+            TranslationError: When enabled translation fails (fail-closed).
         """
         if self.transcription_provider is None:
             raise ValueError(
@@ -180,8 +270,9 @@ class IntelligenceOrchestrator:
             )
         transcript = self.transcription_provider.transcribe(audio, language_hint=language_hint)
         wording_hint = transcript.language or language_hint
+        effective_source = source_language or transcript.language
         return self._run_text(
-            transcript.text, schemes, document_availability, [], wording_hint
+            transcript.text, schemes, document_availability, [], wording_hint, effective_source
         )
 
     def run_from_profile(
@@ -224,6 +315,7 @@ class IntelligenceOrchestrator:
         form_needs: list[SupportNeed] | None = None,
         document_availability: dict[str, Any] | None = None,
         language_hint: str | None = None,
+        source_language: str | None = None,
     ) -> IntelligenceResult:
         """Run form + text/voice through one canonical input, then the pipeline.
 
@@ -236,6 +328,9 @@ class IntelligenceOrchestrator:
             form_needs: Optional structured form needs.
             document_availability: Forwarded untouched to pathway planning.
             language_hint: Wording hint for clarification only.
+            source_language: Optional explicit NMT source language (voice
+                falls back to the provider-reported transcript language).
+                Translation still requires the opt-in flag + provider.
 
         Returns:
             IntelligenceResult from the unchanged downstream pipeline —
@@ -246,11 +341,13 @@ class IntelligenceOrchestrator:
         Raises:
             ValueError: When both audio and user_text are given, or when
                 audio is given without an injected transcription provider.
+            TranslationError: When enabled translation fails (fail-closed).
         """
         if audio is not None and user_text is not None:
             raise ValueError("Provide either audio or user_text, not both.")
         text = user_text
         wording_hint = language_hint
+        effective_source = source_language
         if audio is not None:
             if self.transcription_provider is None:
                 raise ValueError(
@@ -259,15 +356,18 @@ class IntelligenceOrchestrator:
             transcript = self.transcription_provider.transcribe(audio, language_hint=language_hint)
             text = transcript.text
             wording_hint = transcript.language or language_hint
+            effective_source = source_language or transcript.language
 
         extracted_profile = None
         extracted_needs: list[SupportNeed] = []
         goal: str | None = None
         analyzed_notes: list[str] = []
+        translation: Any | None = None
         if text is not None:
-            extracted_profile = self.profile_processor.process_profile(text)
+            extract_text, translation = self._preprocess_language(text, effective_source)
+            extracted_profile = self.profile_processor.process_profile(extract_text)
             if self.need_analyzer is not None:
-                analyzed = self.need_analyzer.analyze(text)
+                analyzed = self.need_analyzer.analyze(extract_text)
                 extracted_needs = list(analyzed.needs)
                 goal = analyzed.business_goal
                 analyzed_notes = list(analyzed.notes)
@@ -277,9 +377,13 @@ class IntelligenceOrchestrator:
             need_conflicts = detect_need_conflicts(form_needs, extracted_needs)
             all_conflicts = conflicts + need_conflicts
             if all_conflicts:
-                return self._conflict_result(
-                    form_profile, extracted_profile, form_needs, extracted_needs, goal,
-                    all_conflicts, text, wording_hint, analyzed_notes,
+                return self._retain_translation(
+                    self._conflict_result(
+                        form_profile, extracted_profile, form_needs, extracted_needs, goal,
+                        all_conflicts, text, wording_hint, analyzed_notes,
+                        translated=translation is not None,
+                    ),
+                    translation,
                 )
 
         profile, needs = merge_inputs(
@@ -287,11 +391,16 @@ class IntelligenceOrchestrator:
             notes=analyzed_notes,
         )
         stages = ["profile"]
+        if translation is not None:
+            stages.insert(0, "translation")
         if needs is not None:
             stages.append("needs")
-        return self._execute(
-            profile, needs, schemes, document_availability, stages, text,
-            language_hint=wording_hint,
+        return self._retain_translation(
+            self._execute(
+                profile, needs, schemes, document_availability, stages, text,
+                language_hint=wording_hint,
+            ),
+            translation,
         )
 
     def _conflict_result(
@@ -305,6 +414,7 @@ class IntelligenceOrchestrator:
         text: str | None,
         wording_hint: str | None,
         notes: list[str] | None = None,
+        translated: bool = False,
     ) -> IntelligenceResult:
         """Return clarification for disputed inputs without running engines.
 
@@ -329,6 +439,8 @@ class IntelligenceOrchestrator:
             notes=notes,
         )
         stages = ["profile"]
+        if translated:
+            stages.insert(0, "translation")
         if needs is not None:
             stages.append("needs")
         partial = IntelligenceResult(
