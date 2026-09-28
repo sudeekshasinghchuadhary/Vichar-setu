@@ -1,0 +1,823 @@
+"""Pydantic schemas for the Core Intelligence Engine.
+
+NOTE: These models are an internal prototype contract for the
+intelligence engine. They are designed to work conceptually with
+the current PostgreSQL structure (users, schemes,
+eligibility_criteria tables) but do NOT copy it exactly.
+FastAPI will map database fields into these models later.
+Do not build backend or DB contracts on top of these yet.
+
+This module holds data contracts only. No AI logic, no
+eligibility logic, no matching logic, no database code,
+and no LLM SDK code belong here.
+"""
+
+from typing import Any, Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from intelligence_engine.need_vocabulary import normalize_need_type
+from intelligence_engine.profile_vocabulary import (
+    normalize_social_category,
+    normalize_state,
+)
+
+
+class _FiniteModel(BaseModel):
+    """Contract base rejecting non-finite floats (inf/nan) at validation.
+
+    Money, scores, and differences must be real numbers; infinities
+    previously passed ge=0 checks and flowed into deterministic
+    arithmetic. All intelligence result/input models share this base.
+    """
+
+    model_config = ConfigDict(allow_inf_nan=False)
+
+
+class UserProfile(_FiniteModel):
+    """Validated user profile. Every field is optional (None = not provided)."""
+
+    age: Optional[int] = Field(default=None, ge=0, le=120)
+    gender: Optional[str] = Field(default=None)
+    social_category: Optional[str] = Field(default=None)
+    state: Optional[str] = Field(default=None)
+    district: Optional[str] = Field(default=None)
+    occupation: Optional[str] = Field(default=None)
+    annual_family_income: Optional[float] = Field(default=None, ge=0)
+    income_period: Literal["monthly", "annual", "unknown"] = Field(
+        default="annual",
+        description=(
+            "Period of annual_family_income. Default 'annual' covers legacy "
+            "structured data already annualized (fixtures/backend). Extractors "
+            "must write 'monthly' or 'unknown' explicitly; unknown speech must "
+            "never be stored as annual. Monthly values are annualized ×12 in "
+            "deterministic normalization; unknown periods cannot satisfy "
+            "annual-income rules."
+        ),
+    )
+    purpose: Optional[str] = Field(default=None)
+    project_type: Optional[str] = Field(default=None)
+    estimated_project_cost: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Profile-level project estimate supplied by the user. Distinct from "
+            "NeedAnalysisResult.total_requested (deterministic total of analyzed "
+            "one-time needs). Never equated or copied automatically."
+        ),
+    )
+    education_level: Optional[str] = Field(default=None)
+
+    @field_validator("state")
+    @classmethod
+    def _normalize_state_field(cls, value: Optional[str]) -> Optional[str]:
+        """Shared state normalization; None stays None."""
+        if value is None:
+            return None
+        return normalize_state(value)
+
+    @field_validator("social_category")
+    @classmethod
+    def _normalize_category_field(cls, value: Optional[str]) -> Optional[str]:
+        """Shared social-category normalization; None stays None."""
+        if value is None:
+            return None
+        return normalize_social_category(value)
+
+
+SupportType = Literal["loan", "grant", "subsidy", "training", "marketing", "infrastructure", "other"]
+NeedPriority = Literal["high", "medium", "low"]
+AmountPeriod = Literal["one_time", "monthly", "annual", "unknown"]
+
+
+class SchemeSupport(_FiniteModel):
+    """One verified structured support a scheme offers (never inferred).
+
+    support_type: Financial/support kind; loan ≠ grant ≠ subsidy.
+    covers_need_types: Canonical need types this covers (entries
+        normalized through the shared vocabulary; unknown wording kept
+        as cleaned text, never invented).
+    max_amount: Verified cap; None means unknown (never treated as 0).
+    max_amount_period: Explicit period of max_amount ("unknown" for
+        legacy entries that only carry max_amount — never silently
+        assumed one-time). Coverage requires equal known periods.
+    description: Human detail; free text implies no amount on its own.
+    """
+
+    support_type: SupportType = Field()
+    covers_need_types: list[str] = Field(default_factory=list)
+    max_amount: Optional[float] = Field(default=None, ge=0)
+    max_amount_period: AmountPeriod = Field(default="unknown")
+    description: Optional[str] = Field(default=None)
+
+    @field_validator("covers_need_types")
+    @classmethod
+    def _canonicalize_covers(cls, value: list[str]) -> list[str]:
+        """Collapse known aliases to canonical types; preserve the rest."""
+        normalized: list[str] = []
+        for entry in value:
+            canonical, _ = normalize_need_type(entry)
+            normalized.append(canonical if canonical is not None else entry)
+        return normalized
+
+
+StepType = Literal["prepare_documents", "submit_application", "verification", "follow_up", "other"]
+DocumentState = Literal["available", "missing", "unknown"]
+ReadinessStatus = Literal["ready", "not_ready", "needs_information"]
+
+
+class ApplicationStep(_FiniteModel):
+    """One explicitly structured pathway step (never invented).
+
+    Steps execute in list order as provided by verified scheme data.
+    """
+
+    step_type: StepType = Field()
+    title: str = Field(min_length=1)
+    detail: Optional[str] = Field(default=None)
+
+
+class ChannelInfo(_FiniteModel):
+    """One explicitly structured application channel (info only, never a recommendation)."""
+
+    name: str = Field(min_length=1)
+    channel_type: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None)
+    link: Optional[str] = Field(default=None)
+
+
+PartnerType = Literal["SCA", "PSB", "RRB", "NBFC_MFI", "COOPERATIVE_BANK", "OTHER"]
+
+PartnerMatchTier = Literal[
+    "NEAREST_BY_DISTANCE", "EXACT_DISTRICT", "STATE_LEVEL", "TYPE_ONLY_NO_LISTING"
+]
+
+
+class ChannelPartner(_FiniteModel):
+    """One channel-partner record (bank/MFI/cooperative/etc.).
+
+    No partner data is ever fabricated: optional fields stay None when
+    unknown, and latitude/longitude are populated only when actually
+    known. source/source_date record provenance for the listing.
+    """
+
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    partner_type: PartnerType = Field()
+    state: Optional[str] = Field(default=None)
+    district: Optional[str] = Field(default=None)
+    address: Optional[str] = Field(default=None)
+    contact: Optional[str] = Field(default=None)
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    source: Optional[str] = Field(default=None)
+    source_date: Optional[str] = Field(default=None)
+
+
+class PartnerMatch(_FiniteModel):
+    """One matched partner with an optional computed distance.
+
+    distance_km is populated ONLY when both user and partner
+    coordinates were available and a Haversine distance was actually
+    computed. It is None in every other tier — the word "nearest"
+    must never appear without this value.
+    """
+
+    partner: ChannelPartner = Field()
+    distance_km: Optional[float] = Field(default=None, ge=0)
+
+
+class PartnerMatchResult(_FiniteModel):
+    """Tiered partner-matching outcome (info only, never eligibility).
+
+    tier: NEAREST_BY_DISTANCE (distance-sorted, distance_km present),
+        EXACT_DISTRICT (same district, right type), STATE_LEVEL (same
+        state, right type), or TYPE_ONLY_NO_LISTING (no partner found;
+        required_partner_type carries guidance instead).
+    required_partner_type: The scheme's required partner type, always
+        echoed so the caller never ends up with "unavailable" + nothing.
+    Partner availability never affects eligibility results.
+    """
+
+    tier: PartnerMatchTier = Field()
+    required_partner_type: PartnerType = Field()
+    matches: list[PartnerMatch] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
+
+
+class DocumentCheck(_FiniteModel):
+    """One required document with its conservative status.
+
+    unknown means the system does not know possession — never treated
+    as missing.
+    """
+
+    document: str = Field(min_length=1)
+    status: DocumentState = Field()
+
+
+class PathwayResult(_FiniteModel):
+    """Actionable pathway: readiness, documents, steps, channels, next actions.
+
+    ready means documentation is complete per known data — never a
+    promise of approval.
+    """
+
+    scheme_id: str = Field()
+    readiness: ReadinessStatus = Field()
+    documents: list[DocumentCheck] = Field(default_factory=list)
+    steps: list[ApplicationStep] = Field(default_factory=list)
+    channels: list[ChannelInfo] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
+
+
+class Scheme(_FiniteModel):
+    """Internal scheme view mapped from PostgreSQL schemes + eligibility_criteria.
+
+    AUTHORITY RULE: eligibility_rules (states, categories, ...) are the SOLE
+    authority for eligibility decisions. Display metadata state/category
+    are frontend passthroughs and MUST NOT override or supplement rules;
+    conflicting metadata is ignored by EligibilityEngine. Fixed
+    display/metadata fields (ministry, benefit, documents, link)
+    are optional passthroughs for the frontend. Variable eligibility
+    information (age, income, occupation, education, category, state)
+    lives in the extensible eligibility_rules dict, mirroring the
+    separate eligibility_criteria table. Structured support information
+    lives in support_options (free-text benefit never implies an amount).
+    No eligibility logic here.
+    """
+
+    id: str = Field()
+    name: str = Field()
+    description: str = Field(default="")
+    supported_purposes: list[str] = Field(default_factory=list)
+    supported_project_types: list[str] = Field(default_factory=list)
+    eligibility_rules: dict[str, Any] = Field(default_factory=dict)
+    support_options: list[SchemeSupport] = Field(default_factory=list)
+    source: Optional[str] = Field(default=None)
+    ministry: Optional[str] = Field(default=None)
+    state: Optional[str] = Field(default=None)
+    category: Optional[str] = Field(default=None)
+    benefit: Optional[str] = Field(default=None)
+    documents_required: list[str] = Field(default_factory=list)
+    application_link: Optional[str] = Field(default=None)
+    application_steps: list[ApplicationStep] = Field(default_factory=list)
+    application_channels: list[ChannelInfo] = Field(default_factory=list)
+
+
+EligibilityStatus = Literal["eligible", "not_eligible", "needs_information"]
+
+
+class EligibilityResult(_FiniteModel):
+    """Deterministic eligibility decision with human-readable reasons.
+
+    Use the explicit status field to distinguish a known failure from
+    insufficient information. The `missing_information` list is only populated
+    when the status is `needs_information`.
+    """
+
+    scheme_id: str = Field()
+    status: EligibilityStatus = Field()
+    reasons: list[str] = Field(default_factory=list)
+    missing_information: list[str] = Field(default_factory=list)
+
+
+class MatchResult(_FiniteModel):
+    """Ranked match with a validated 0-100 score.
+
+    deterministic_score/semantic_score preserve the hybrid components
+    without affecting ranking: deterministic-only results carry the
+    deterministic value with semantic None; hybrid results carry both.
+    """
+
+    scheme_id: str = Field()
+    score: float = Field(ge=0, le=100)
+    rank: int = Field(ge=1)
+    reasons: list[str] = Field(default_factory=list)
+    deterministic_score: Optional[float] = Field(default=None, ge=0, le=100)
+    semantic_score: Optional[float] = Field(default=None, ge=0, le=100)
+
+
+class PipelineResult(_FiniteModel):
+    """Final structured output combining profile, eligibility, and ranking."""
+
+    profile: UserProfile = Field()
+    eligibility_results: list[EligibilityResult] = Field(default_factory=list)
+    ranked_matches: list[MatchResult] = Field(default_factory=list)
+
+
+class FailedCriterion(_FiniteModel):
+    """One failed mandatory criterion, structured for analysis and What-If reuse.
+
+    criterion: UserProfile field name (e.g. "annual_family_income").
+    user_value: The user's actual value.
+    required: Human-readable requirement (e.g. "<= 300000").
+    difference: Miss distance where meaningful (e.g. 20000 over the
+        income limit); None for categorical mismatches, which have no
+        meaningful numeric distance.
+    """
+
+    criterion: str = Field()
+    user_value: Optional[Any] = Field(default=None)
+    required: str = Field(default="")
+    difference: Optional[float] = Field(default=None)
+
+
+class NearMissResult(_FiniteModel):
+    """Analysis of how close a not_eligible outcome is (never overrides it)."""
+
+    scheme_id: str = Field()
+    is_near_miss: bool = Field()
+    failed_criteria: list[FailedCriterion] = Field(default_factory=list)
+    satisfied_criteria: list[str] = Field(default_factory=list)
+    total_criteria: int = Field(ge=0)
+    reasons: list[str] = Field(default_factory=list)
+    relevance: Optional["SemanticScore"] = Field(default=None)
+    representation_quality: Optional["RepresentationQuality"] = Field(default=None)
+
+
+RepresentationLevel = Literal["EMPTY", "SPARSE", "RICH"]
+
+
+class RepresentationQuality(_FiniteModel):
+    """Structural representation strength, tracked per side independently.
+
+    Describes only whether usable text existed (EMPTY), only
+    fallback/canonical labels existed (SPARSE), or free text existed
+    (RICH). Never a relevance, eligibility, or suitability judgment.
+    """
+
+    user: RepresentationLevel = Field()
+    scheme: RepresentationLevel = Field()
+
+
+class SemanticScore(_FiniteModel):
+    """Structured semantic result (no natural-language claims).
+
+    Pydantic model so scores crossing the future Intelligence API
+    boundary serialize cleanly via model_dump()/model_dump_json().
+    Non-finite floats are rejected like all intelligence contracts.
+    """
+
+    score: float = Field()
+    cosine: float = Field()
+    user_text: str = Field()
+    scheme_text: str = Field()
+
+
+class SupportNeed(_FiniteModel):
+    """One structured support need. Unknown amounts/periods stay unknown.
+
+    need_type: Canonical need category when recognized, otherwise the
+        user's own cleaned wording (never invented).
+    amount: Explicitly stated amount only; None when not provided.
+    amount_period: "one_time", "monthly", "annual", or "unknown".
+        Never guessed: unstated periods are "unknown".
+    context: Purpose detail for this need (e.g. "machines for stitching").
+    priority: Only when explicitly stated ("high"/"medium"/"low").
+    """
+
+    need_type: str = Field(min_length=1)
+    amount: Optional[float] = Field(default=None, ge=0)
+    amount_period: AmountPeriod = Field(default="unknown")
+    context: Optional[str] = Field(default=None)
+    priority: Optional[NeedPriority] = Field(default=None)
+
+    @field_validator("need_type")
+    @classmethod
+    def _canonicalize_need_type(cls, value: str) -> str:
+        """Collapse known aliases to the canonical vocabulary type."""
+        canonical, _ = normalize_need_type(value)
+        if canonical is None:
+            raise ValueError("need_type must be non-empty text.")
+        return canonical
+
+
+class NeedAnalysisResult(_FiniteModel):
+    """Structured understanding of what the user wants to achieve and need.
+
+    business_goal: The user's goal in their own terms (None if unstated).
+    needs: Validated support needs (duplicates merged deterministically).
+    total_requested: Sum of one-time amounts only; None when no one-time
+        amount is known. Periods are never mixed.
+    notes: Transparency flags (e.g. unrecognized types kept as stated,
+        ambiguous periods left unknown).
+    """
+
+    business_goal: Optional[str] = Field(default=None)
+    needs: list[SupportNeed] = Field(default_factory=list)
+    total_requested: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Deterministic total of explicitly stated one-time needs. Authoritative "
+            "for analyzed needs; distinct from UserProfile.estimated_project_cost "
+            "(user-supplied project estimate). Never copied between the two."
+        ),
+    )
+    notes: list[str] = Field(default_factory=list)
+
+
+class SupportMapping(_FiniteModel):
+    """One need mapped to one verified scheme support option.
+
+    eligibility_status: Copied from EligibilityResult ("unknown" when no
+        result was supplied); coverage is computed only for "eligible".
+    potential_coverage: min(need amount, max_amount) when both are known,
+        periods are equal and known, and status is eligible; else None.
+    uncovered_amount: need amount minus coverage when computable; else None.
+    coverage_known: False preserves uncertainty instead of guessing.
+    """
+
+    scheme_id: str = Field()
+    support_type: SupportType = Field()
+    eligibility_status: str = Field()
+    max_amount: Optional[float] = Field(default=None, ge=0)
+    max_amount_period: AmountPeriod = Field(default="unknown")
+    potential_coverage: Optional[float] = Field(default=None, ge=0)
+    uncovered_amount: Optional[float] = Field(default=None, ge=0)
+    coverage_known: bool = Field(default=False)
+    reasons: list[str] = Field(default_factory=list)
+
+
+class NeedPlan(_FiniteModel):
+    """Plan for one need across candidate supports (never summed across schemes).
+
+    best_known_coverage: Highest single-scheme coverage; schemes are not
+        added together without convergence data.
+    fully_covered: True only when one scheme alone covers the full need.
+    """
+
+    need: SupportNeed = Field()
+    mappings: list[SupportMapping] = Field(default_factory=list)
+    best_known_coverage: Optional[float] = Field(default=None, ge=0)
+    uncovered_amount: Optional[float] = Field(default=None, ge=0)
+    fully_covered: bool = Field(default=False)
+    reasons: list[str] = Field(default_factory=list)
+
+
+class SupportPlan(_FiniteModel):
+    """Structured support plan for frontend/API/finance/pathway use later.
+
+    convergence_unknown: Always True until structured convergence data
+        exists; schemes are assumed non-combinable.
+    next_actions: Deterministic follow-ups (missing info, uncovered needs).
+    """
+
+    business_goal: Optional[str] = Field(default=None)
+    need_plans: list[NeedPlan] = Field(default_factory=list)
+    total_need_amount: Optional[float] = Field(default=None, ge=0)
+    total_best_known_coverage: Optional[float] = Field(default=None, ge=0)
+    total_uncovered_amount: Optional[float] = Field(default=None, ge=0)
+    totals_fully_known: bool = Field(default=False)
+    convergence_unknown: bool = Field(default=True)
+    reasons: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+
+
+class WhatIfChange(_FiniteModel):
+    """One requested hypothetical edit: field plus its hypothetical value.
+
+    hypothetical_value None means "what if this were unknown".
+    """
+
+    field: str = Field(min_length=1)
+    hypothetical_value: Optional[Any] = Field(default=None)
+
+
+class AppliedChange(_FiniteModel):
+    """A change with the current value attached for transparent comparison."""
+
+    field: str = Field()
+    current_value: Optional[Any] = Field(default=None)
+    hypothetical_value: Optional[Any] = Field(default=None)
+
+
+class WhatIfResult(_FiniteModel):
+    """Structured current-vs-hypothetical eligibility comparison.
+
+    changed_criteria: Eligibility dimensions whose outcome status differs.
+    remaining_failures: Dimensions still failed in the hypothetical run.
+    An "eligible" hypothetical means the temporary profile satisfies the
+    currently defined rules — never a promise of real-world approval.
+    """
+
+    scheme_id: str = Field()
+    changes: list[AppliedChange] = Field(default_factory=list)
+    current: EligibilityResult = Field()
+    hypothetical: EligibilityResult = Field()
+    hypothetical_profile: UserProfile = Field()
+    status_changed: bool = Field()
+    changed_criteria: list[str] = Field(default_factory=list)
+    remaining_failures: list[str] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
+
+
+class FinancialOption(_FiniteModel):
+    """One explicitly known funding option (never inferred).
+
+    amount None means unknown (never treated as zero).
+    """
+
+    label: str = Field(min_length=1)
+    kind: Optional[str] = Field(default=None)
+    amount: Optional[float] = Field(default=None, ge=0)
+
+
+class LoanTerms(_FiniteModel):
+    """Explicit loan inputs. All three are required; nothing is assumed.
+
+    moratorium_months: Repayment holiday in months (0-12, default 0).
+        During the moratorium no EMI is paid.
+    moratorium_interest_accrues: Explicit policy for the moratorium
+        (never assumed). True means interest capitalizes onto the
+        principal during the holiday; False means interest is
+        waived/forgiven during the holiday and the principal is
+        unchanged. Must always be stated by the caller when a
+        moratorium is used.
+    """
+
+    principal: float = Field(gt=0)
+    annual_rate_percent: float = Field(ge=0)
+    tenure_months: int = Field(ge=1)
+    moratorium_months: int = Field(default=0, ge=0, le=12)
+    moratorium_interest_accrues: bool = Field(default=True)
+
+
+class LoanResult(_FiniteModel):
+    """Standard amortizing-loan outputs, rounded to 2 decimals.
+
+    No affordability claim: affordability needs income/expense data plus
+    an explicit rule, neither of which lives here.
+
+    monthly_emi: Post-moratorium EMI (equals post_moratorium_emi;
+        kept for backward compatibility). Zero only when there is no
+        repayment (never the case — moratorium < tenure is enforced).
+    moratorium_months: Echo of the holiday applied (0 when none).
+    moratorium_interest_accrues: Echo of the stated interest policy.
+    post_moratorium_emi: EMI paid after the holiday (None only if it
+        could not apply — kept explicit; equals monthly_emi here).
+    repayment_months: Number of months EMI is actually paid
+        (tenure_months minus moratorium_months).
+    """
+
+    monthly_emi: float = Field(ge=0)
+    total_payable: float = Field(ge=0)
+    total_interest: float = Field(ge=0)
+    moratorium_months: int = Field(default=0, ge=0, le=12)
+    moratorium_interest_accrues: bool = Field(default=True)
+    post_moratorium_emi: Optional[float] = Field(default=None, ge=0)
+    repayment_months: Optional[int] = Field(default=None, ge=1)
+
+
+class CoverageResult(_FiniteModel):
+    """Deterministic requirement-vs-support arithmetic.
+
+    covered: Best single known option capped at required (never summed
+        across options without convergence data).
+    uncovered/own_contribution: required minus covered when both known;
+        equal by definition here (the gap is the user's share absent
+        other funding). None whenever anything needed is unknown.
+    coverage_known: False preserves uncertainty instead of guessing.
+    """
+
+    required: Optional[float] = Field(default=None, ge=0)
+    covered: Optional[float] = Field(default=None, ge=0)
+    uncovered: Optional[float] = Field(default=None, ge=0)
+    own_contribution: Optional[float] = Field(default=None, ge=0)
+    coverage_known: bool = Field(default=False)
+    fully_covered: bool = Field(default=False)
+    reasons: list[str] = Field(default_factory=list)
+
+
+class OptionComparison(_FiniteModel):
+    """Comparison on explicitly known amounts only.
+
+    ranked_labels: Labels with known amounts, highest first (ties by
+        label). Unknown-amount options are listed separately, unranked —
+        never ranked on assumptions.
+    """
+
+    ranked_labels: list[str] = Field(default_factory=list)
+    unknown_labels: list[str] = Field(default_factory=list)
+    best_amount: Optional[float] = Field(default=None, ge=0)
+    reasons: list[str] = Field(default_factory=list)
+
+
+TraceItemKind = Literal["decision", "evidence", "calculation", "uncertainty", "action"]
+
+
+class ExplanationItem(_FiniteModel):
+    """One trace line with a fixed role and its source engine.
+
+    source names the authoritative engine (e.g. "EligibilityEngine").
+    Texts preserve upstream reasons/values; never paraphrased claims.
+    """
+
+    kind: TraceItemKind = Field()
+    text: str = Field(min_length=1)
+    source: str = Field(min_length=1)
+
+
+class DecisionTrace(_FiniteModel):
+    """Structured explanation of one already-made decision.
+
+    Contains exactly one "decision" item restating the verdict; all
+    other items are supporting evidence, calculations, uncertainties,
+    or actions. Uncertainty is never converted into a negative verdict.
+    """
+
+    subject: str = Field(min_length=1)
+    items: list[ExplanationItem] = Field(default_factory=list)
+
+
+class GeneratedExplanation(_FiniteModel):
+    """LLM-rendered trace wording with its grounding verdict.
+
+    grounded True means the draft passed all checks; otherwise text is
+    the deterministic safe fallback and fallback_used is True with the
+    failed check names in issues.
+    """
+
+    subject: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+    grounded: bool = Field()
+    fallback_used: bool = Field(default=False)
+    issues: list[str] = Field(default_factory=list)
+
+
+class SchemeInsights(_FiniteModel):
+    """All per-scheme intelligence outputs, keyed by one scheme_id.
+
+    Each slot reuses its authoritative result schema unchanged; None
+    means that stage did not execute for this scheme (never a faked
+    empty verdict). Global ranking stays in ranked_matches, associated
+    by scheme_id.
+    """
+
+    scheme_id: str = Field()
+    eligibility: Optional[EligibilityResult] = Field(default=None)
+    near_miss: Optional[NearMissResult] = Field(default=None)
+    pathway: Optional[PathwayResult] = Field(default=None)
+    traces: list[DecisionTrace] = Field(default_factory=list)
+    explanation: Optional[GeneratedExplanation] = Field(default=None)
+
+
+class IntelligenceResult(_FiniteModel):
+    """Product-level intelligence container (orchestration contract only).
+
+    Sections mirror the product flow: profile understanding, needs,
+    eligibility, ranking, near-miss, support, financial, pathway,
+    traces, and optional LLM wording. Each section keeps its own
+    authoritative schema; this container holds NO business rules,
+    weights, calculations, or decisions.
+
+    stages_completed names executed stages (e.g. "profile",
+    "eligibility"); absent stages are simply None/empty, never faked.
+    Non-scheme traces (needs/support/financial) live in traces;
+    scheme-scoped traces live in SchemeInsights.traces, with the
+    scheme's primary explanation in SchemeInsights.explanation and
+    every generated wording also collected in explanations.
+    What-If stays a separate on-demand operation (WhatIfResult) and is
+    not embedded here. Loan/EMI comparisons remain standalone calls;
+    coverage_results carries standalone coverage computations.
+    clarification holds a deterministic follow-up request when the run
+    left genuinely missing inputs, else None (never faked).
+    source_text holds the original pre-translation wording when the
+    optional language-preprocessing stage ran (else None); the
+    translated representation actually sent to extraction lives in
+    translated_text. Both are audit/debug slots only — no decision
+    engine reads them.
+    """
+
+    profile: Optional[UserProfile] = Field(default=None)
+    needs: Optional[NeedAnalysisResult] = Field(default=None)
+    schemes: list[SchemeInsights] = Field(default_factory=list)
+    ranked_matches: list[MatchResult] = Field(default_factory=list)
+    support_plan: Optional[SupportPlan] = Field(default=None)
+    coverage_results: list[CoverageResult] = Field(default_factory=list)
+    traces: list[DecisionTrace] = Field(default_factory=list)
+    explanations: list[GeneratedExplanation] = Field(default_factory=list)
+    clarification: Optional["ClarificationRequest"] = Field(default=None)
+    stages_completed: list[str] = Field(default_factory=list)
+    source_text: Optional[str] = Field(default=None)
+    translated_text: Optional[str] = Field(default=None)
+
+    @classmethod
+    def from_pipeline_result(cls, result: "PipelineResult") -> "IntelligenceResult":
+        """Place a legacy PipelineResult into the product container.
+
+        Pure slot placement (no decisions): profile, per-scheme
+        eligibility association, and global ranking carry over; all
+        other stages read as not executed.
+        """
+        return cls(
+            profile=result.profile,
+            schemes=[
+                SchemeInsights(scheme_id=item.scheme_id, eligibility=item)
+                for item in result.eligibility_results
+            ],
+            ranked_matches=list(result.ranked_matches),
+            stages_completed=["profile", "eligibility", "matching"],
+        )
+
+
+class TranscriptionResult(_FiniteModel):
+    """Validated speech-to-text output (wording preserved verbatim).
+
+    text: Transcript with whitespace collapsed; empty transcripts are
+        rejected (silence is a provider error, not an empty profile).
+    language: BCP-47-ish tag when the provider reports one (e.g. "hi",
+        "en"); None when unreported — never guessed.
+    No audio is stored; no profile/need information is added here.
+    """
+
+    text: str = Field(min_length=1)
+    language: Optional[str] = Field(default=None)
+
+    @field_validator("text")
+    @classmethod
+    def _collapse_whitespace(cls, value: str) -> str:
+        """Collapse whitespace without changing wording."""
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("transcript text must be non-empty.")
+        return cleaned
+
+
+class TranslationResult(_FiniteModel):
+    """Validated text-translation output (both sides preserved).
+
+    original_text: Source-language wording with whitespace collapsed;
+        never discarded or overwritten by the translation.
+    translated_text: Target-language wording with whitespace collapsed;
+        empty translations are rejected (a provider failure, not a
+        silent fallback to the original).
+    source_language: Explicit source language code (e.g. "hi"); None
+        only when the caller did not state one — never detected here.
+    target_language: Target language code (default "en").
+    No profile/need information is added here; translation quality
+    itself is NOT validated (mocked tests prove plumbing only).
+    """
+
+    original_text: str = Field(min_length=1)
+    translated_text: str = Field(min_length=1)
+    source_language: Optional[str] = Field(default=None)
+    target_language: str = Field(default="en")
+
+    @field_validator("original_text", "translated_text")
+    @classmethod
+    def _collapse_whitespace(cls, value: str) -> str:
+        """Collapse whitespace without changing wording."""
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("translation text must be non-empty.")
+        return cleaned
+
+
+class ClarificationQuestion(_FiniteModel):
+    """One deterministic question grounded in a missing field.
+
+    field: machine-usable reference (UserProfile field name, or
+        "needs[i].amount" / "needs[i].amount_period").
+    question: Human-readable wording derived from that field only.
+    """
+
+    field: str = Field(min_length=1)
+    question: str = Field(min_length=1)
+
+
+class ValueConflict(_FiniteModel):
+    """One disputed field with both sources preserved for resolution.
+
+    criterion-equivalent for What-If-style reuse: the backend asks the
+    user to confirm "form" or "extracted" (see resolve_conflicts), then
+    reruns with the confirmed canonical profile. Neither value is used
+    for decisions while disputed.
+    """
+
+    field: str = Field(min_length=1)
+    form_value: Optional[Any] = Field(default=None)
+    extracted_value: Optional[Any] = Field(default=None)
+
+
+class ClarificationRequest(_FiniteModel):
+    """Stateless clarification derived from structured uncertainty.
+
+    missing_fields: Deduplicated missing references in first-seen order.
+    questions: One deterministic question per missing reference.
+    conflicts: Disputed form-vs-extracted values awaiting user confirmation.
+    current_partial_result: The IntelligenceResult that produced them,
+        unchanged — the backend re-invokes the pipeline after answers.
+    Absent (None from the builder) when nothing is missing.
+    """
+
+    missing_fields: list[str] = Field(default_factory=list)
+    questions: list[ClarificationQuestion] = Field(default_factory=list)
+    conflicts: list[ValueConflict] = Field(default_factory=list)
+    current_partial_result: IntelligenceResult = Field()
+
+
+IntelligenceResult.model_rebuild()
+NearMissResult.model_rebuild()

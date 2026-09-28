@@ -1,0 +1,715 @@
+"""Intelligence orchestrator: end-to-end flow with zero business rules.
+
+Flow: raw text -> ProfileProcessor + NeedAnalyzer (parallel branches)
+-> EligibilityEngine (every scheme) -> MatchingEngine (+ optional
+SemanticMatcher hybrid) + NearMissEngine (not_eligible + needs_information
+breakdowns; is_near_miss only for not_eligible)
+-> SupportPlanner (needs + schemes + eligibility)
+-> FinancialIntelligence (per-need eligible supports)
+-> PathwayEngine (eligible schemes with pathway data)
+-> ExplanationEngine (traces) -> ExplanationGenerator (optional wording)
+-> IntelligenceResult.
+
+Every decision, weight, calculation, and reason string comes from the
+injected engines. This class only routes their inputs/outputs, assembles
+SchemeInsights, and records stages_completed accurately. Component typed
+errors propagate unchanged. What-If stays separate and never runs here.
+No database, FastAPI, HTTP, parallelism, or persisted state.
+"""
+
+from typing import Any
+
+from intelligence_engine.clarification import build_clarification, build_conflict_request
+from intelligence_engine.eligibility_engine import EligibilityEngine
+from intelligence_engine.explanation_engine import ExplanationEngine
+from intelligence_engine.explanation_generator import ExplanationGenerator
+from intelligence_engine.financial_intelligence import FinancialIntelligence
+from intelligence_engine.input_merger import detect_conflicts, detect_need_conflicts, merge_inputs, merge_profiles
+from intelligence_engine.matching_engine import MatchingEngine
+from intelligence_engine.near_miss_engine import NearMissEngine
+from intelligence_engine.pathway_engine import ApplicationPathwayEngine
+from intelligence_engine.schemas import (
+    DecisionTrace,
+    GeneratedExplanation,
+    IntelligenceResult,
+    MatchResult,
+    NeedAnalysisResult,
+    Scheme,
+    SchemeInsights,
+    SupportNeed,
+    UserProfile,
+    ValueConflict,
+)
+from intelligence_engine.semantic_matcher import SemanticMatcher, assess_representation, combine_scores
+from intelligence_engine.support_planner import SupportPlanningEngine
+from intelligence_engine.transcription import TranscriptionProvider
+from intelligence_engine.translation import TranslationProvider
+
+
+def _primary_subtag(language: str | None) -> str:
+    """Primary subtag of a language tag ("hi-IN" -> "hi"); "" when absent."""
+    hint = (language or "").strip().lower()
+    if not hint:
+        return ""
+    return hint.replace("_", "-").split("-")[0]
+
+
+def _needs_translation(source_language: str | None) -> bool:
+    """True only for an explicit non-English source language.
+
+    English (any "en*" tag), missing, or blank sources never translate:
+    no language detection is performed anywhere.
+    """
+    tag = _primary_subtag(source_language)
+    return bool(tag) and tag != "en"
+
+
+def _has_pathway_data(scheme: Scheme) -> bool:
+    """True when the scheme defines any structured pathway material."""
+    return bool(
+        scheme.documents_required
+        or scheme.application_steps
+        or (scheme.application_link or "").strip()
+        or scheme.application_channels
+    )
+
+
+class IntelligenceOrchestrator:
+    """Coordinate all intelligence stages into one IntelligenceResult."""
+
+    def __init__(
+        self,
+        profile_processor: Any,
+        need_analyzer: Any = None,
+        eligibility_engine: EligibilityEngine | None = None,
+        matching_engine: MatchingEngine | None = None,
+        semantic_matcher: SemanticMatcher | None = None,
+        semantic_weight: float = 0.0,
+        near_miss_engine: NearMissEngine | None = None,
+        support_planner: SupportPlanningEngine | None = None,
+        financial: FinancialIntelligence | None = None,
+        pathway_engine: ApplicationPathwayEngine | None = None,
+        explanation_engine: ExplanationEngine | None = None,
+        explanation_generator: ExplanationGenerator | None = None,
+        clarification_generator: Any = None,
+        transcription_provider: TranscriptionProvider | None = None,
+        translation_provider: TranslationProvider | None = None,
+        translation_enabled: bool = False,
+    ) -> None:
+        """Store injected components (defaults are real engines, never vendors).
+
+        Args:
+            profile_processor: Required (needs an LLM backend; no default).
+            semantic_weight: Hybrid weight in 0-1; 0 keeps pure
+                deterministic ranking. Positive weight requires a
+                semantic_matcher, else misconfiguration raises.
+            translation_provider: Optional language-preprocessing backend
+                (e.g. BHASHINI NMT). Used only when translation_enabled
+                is True AND the caller supplies an explicit non-English
+                source_language; otherwise text flows to extraction
+                exactly as before.
+            translation_enabled: Opt-in NMT flag (default False — current
+                default behavior unchanged).
+        """
+        if semantic_weight and semantic_matcher is None:
+            raise ValueError("semantic_weight > 0 requires a semantic_matcher.")
+        if not 0 <= semantic_weight <= 1:
+            raise ValueError("semantic_weight must be within 0-1.")
+        self.profile_processor = profile_processor
+        self.need_analyzer = need_analyzer
+        self.eligibility_engine = eligibility_engine or EligibilityEngine()
+        self.matching_engine = matching_engine or MatchingEngine()
+        self.semantic_matcher = semantic_matcher
+        self.semantic_weight = semantic_weight
+        self.near_miss_engine = near_miss_engine or NearMissEngine()
+        self.support_planner = support_planner or SupportPlanningEngine()
+        self.financial = financial or FinancialIntelligence()
+        self.pathway_engine = pathway_engine or ApplicationPathwayEngine()
+        self.explanation_engine = explanation_engine or ExplanationEngine()
+        self.explanation_generator = explanation_generator
+        self.clarification_generator = clarification_generator
+        self.transcription_provider = transcription_provider
+        self.translation_provider = translation_provider
+        self.translation_enabled = translation_enabled
+
+    def run(
+        self,
+        user_text: str,
+        schemes: list[Scheme],
+        document_availability: dict[str, Any] | None = None,
+        language_hint: str | None = None,
+        source_language: str | None = None,
+    ) -> IntelligenceResult:
+        """Run the full flow and assemble the product result.
+
+        Args:
+            user_text: Raw natural-language user description.
+            schemes: Already-structured candidate schemes.
+            document_availability: Optional doc-name -> availability map
+                forwarded untouched to pathway planning.
+            language_hint: Optional wording hint forwarded ONLY to
+                clarification wording. Never decision input.
+            source_language: Optional explicit source language (e.g.
+                "hi"). Translation runs only when the orchestrator was
+                built with translation_enabled=True, a
+                translation_provider, AND this is a non-English tag.
+                English/missing sources keep existing behavior exactly.
+
+        Returns:
+            IntelligenceResult with accurately recorded stages_completed.
+        """
+        stages: list[str] = []
+        return self._run_text(user_text, schemes, document_availability, stages, language_hint, source_language)
+
+    def _preprocess_language(
+        self, text: str, source_language: str | None
+    ) -> tuple[str, Any | None]:
+        """Optionally translate text; return (extraction_text, translation).
+
+        Returns the input unchanged with None when translation is
+        disabled, unconfigured, or the source is English/missing (no
+        detection anywhere). On success the translated English text is
+        returned for extraction alongside the TranslationResult that
+        preserves the original. Provider failures raise
+        TranslationError (fail-closed): never fabricated English, never
+        a silent fallback to the untranslated input.
+        """
+        from intelligence_engine.translation import TranslationError
+
+        if not self.translation_enabled or self.translation_provider is None:
+            return text, None
+        if not _needs_translation(source_language):
+            return text, None
+        try:
+            result = self.translation_provider.translate(text, _primary_subtag(source_language))
+        except TranslationError:
+            raise
+        except Exception as exc:
+            raise TranslationError(
+                f"Translation provider failed: {type(exc).__name__}: {exc}"
+            ) from exc
+        return result.translated_text, result
+
+    @staticmethod
+    def _retain_translation(
+        result: IntelligenceResult, translation: Any | None
+    ) -> IntelligenceResult:
+        """Record original + translated wording on the result (audit slots)."""
+        if translation is None:
+            return result
+        return result.model_copy(
+            update={
+                "source_text": translation.original_text,
+                "translated_text": translation.translated_text,
+            }
+        )
+
+    def _run_text(
+        self,
+        user_text: str,
+        schemes: list[Scheme],
+        document_availability: dict[str, Any] | None,
+        stages: list[str],
+        language_hint: str | None,
+        source_language: str | None = None,
+    ) -> IntelligenceResult:
+        """Shared text pipeline: optional NMT, then profile/needs extraction, then _execute."""
+        extract_text, translation = self._preprocess_language(user_text, source_language)
+        if translation is not None:
+            stages.append("translation")
+        profile = self.profile_processor.process_profile(extract_text)
+        stages.append("profile")
+
+        needs = None
+        if self.need_analyzer is not None:
+            needs = self.need_analyzer.analyze(extract_text)
+            stages.append("needs")
+
+        result = self._execute(
+            profile, needs, schemes, document_availability, stages, user_text,
+            language_hint=language_hint,
+        )
+        return self._retain_translation(result, translation)
+
+    def run_from_audio(
+        self,
+        audio: bytes,
+        schemes: list[Scheme],
+        document_availability: dict[str, Any] | None = None,
+        language_hint: str | None = None,
+        source_language: str | None = None,
+    ) -> IntelligenceResult:
+        """Run the identical text pipeline from transcribed audio.
+
+        Args:
+            audio: Raw audio bytes. Transcribed once; only the validated
+                transcript text enters the pipeline — audio never reaches
+                eligibility, matching, financial, support, or pathway logic.
+            schemes: Already-structured candidate schemes.
+            document_availability: Forwarded untouched to pathway planning.
+            language_hint: Caller hint passed to transcription and used
+                only when the provider reports no language of its own.
+            source_language: Optional explicit NMT source language;
+                when omitted, the provider-reported transcript language
+                is used. Translation still runs only when explicitly
+                enabled with a provider and a non-English source.
+
+        Returns:
+            IntelligenceResult identical in shape to run(); wording
+            prefers provider-reported language, then the caller hint.
+
+        Raises:
+            ValueError: When no transcription provider was injected.
+            TranscriptionError: Propagated unchanged on empty audio,
+                empty transcripts, or provider failures (no partial result).
+            TranslationError: When enabled translation fails (fail-closed).
+        """
+        if self.transcription_provider is None:
+            raise ValueError(
+                "run_from_audio requires an injected transcription_provider."
+            )
+        transcript = self.transcription_provider.transcribe(audio, language_hint=language_hint)
+        wording_hint = transcript.language or language_hint
+        effective_source = source_language or transcript.language
+        return self._run_text(
+            transcript.text, schemes, document_availability, [], wording_hint, effective_source
+        )
+
+    def run_from_profile(
+        self,
+        profile: UserProfile,
+        schemes: list[Scheme],
+        needs: NeedAnalysisResult | None = None,
+        document_availability: dict[str, Any] | None = None,
+        user_text: str | None = None,
+    ) -> IntelligenceResult:
+        """Run the same downstream flow from an already-validated profile.
+
+        Args:
+            profile: Validated UserProfile (e.g. built by FastAPI from
+                stored/verified data instead of natural language).
+            schemes: Already-structured candidate schemes.
+            needs: Optional pre-analyzed needs; when omitted, the
+                support/financial stages are skipped (the need analyzer
+                needs raw text, which this path does not take).
+            document_availability: Optional doc-name -> availability map
+                forwarded untouched to pathway planning.
+            user_text: Optional raw wording used ONLY as language/style
+                context for clarification wording. Never passed into
+                eligibility, matching, financial, support-planning,
+                pathway, or any other decision logic.
+
+        Returns:
+            IntelligenceResult with accurately recorded stages_completed
+            ("profile" marked complete since a validated profile was
+            supplied, not extracted).
+        """
+        return self._execute(profile, needs, schemes, document_availability, ["profile"], user_text)
+
+    def run_hybrid(
+        self,
+        form_profile: UserProfile,
+        schemes: list[Scheme],
+        user_text: str | None = None,
+        audio: bytes | None = None,
+        form_needs: list[SupportNeed] | None = None,
+        document_availability: dict[str, Any] | None = None,
+        language_hint: str | None = None,
+        source_language: str | None = None,
+    ) -> IntelligenceResult:
+        """Run form + text/voice through one canonical input, then the pipeline.
+
+        Args:
+            form_profile: Structured form profile (no silent conflict wins).
+            schemes: Already-structured candidate schemes.
+            user_text: Optional supplementary natural-language text.
+            audio: Optional voice input (transcribed once via the text
+                path; never both audio and user_text at once).
+            form_needs: Optional structured form needs.
+            document_availability: Forwarded untouched to pathway planning.
+            language_hint: Wording hint for clarification only.
+            source_language: Optional explicit NMT source language (voice
+                falls back to the provider-reported transcript language).
+                Translation still requires the opt-in flag + provider.
+
+        Returns:
+            IntelligenceResult from the unchanged downstream pipeline —
+            unless form and text genuinely conflict, in which case no
+            engine runs and the result carries conflict clarification
+            for user confirmation first.
+
+        Raises:
+            ValueError: When both audio and user_text are given, or when
+                audio is given without an injected transcription provider.
+            TranslationError: When enabled translation fails (fail-closed).
+        """
+        if audio is not None and user_text is not None:
+            raise ValueError("Provide either audio or user_text, not both.")
+        text = user_text
+        wording_hint = language_hint
+        effective_source = source_language
+        if audio is not None:
+            if self.transcription_provider is None:
+                raise ValueError(
+                    "run_hybrid with audio requires an injected transcription_provider."
+                )
+            transcript = self.transcription_provider.transcribe(audio, language_hint=language_hint)
+            text = transcript.text
+            wording_hint = transcript.language or language_hint
+            effective_source = source_language or transcript.language
+
+        extracted_profile = None
+        extracted_needs: list[SupportNeed] = []
+        goal: str | None = None
+        analyzed_notes: list[str] = []
+        translation: Any | None = None
+        if text is not None:
+            extract_text, translation = self._preprocess_language(text, effective_source)
+            extracted_profile = self.profile_processor.process_profile(extract_text)
+            if self.need_analyzer is not None:
+                analyzed = self.need_analyzer.analyze(extract_text)
+                extracted_needs = list(analyzed.needs)
+                goal = analyzed.business_goal
+                analyzed_notes = list(analyzed.notes)
+
+        if extracted_profile is not None:
+            conflicts = detect_conflicts(form_profile, extracted_profile)
+            need_conflicts = detect_need_conflicts(form_needs, extracted_needs)
+            all_conflicts = conflicts + need_conflicts
+            if all_conflicts:
+                return self._retain_translation(
+                    self._conflict_result(
+                        form_profile, extracted_profile, form_needs, extracted_needs, goal,
+                        all_conflicts, text, wording_hint, analyzed_notes,
+                        translated=translation is not None,
+                    ),
+                    translation,
+                )
+
+        profile, needs = merge_inputs(
+            form_profile, extracted_profile, form_needs, extracted_needs, goal,
+            notes=analyzed_notes,
+        )
+        stages = ["profile"]
+        if translation is not None:
+            stages.insert(0, "translation")
+        if needs is not None:
+            stages.append("needs")
+        return self._retain_translation(
+            self._execute(
+                profile, needs, schemes, document_availability, stages, text,
+                language_hint=wording_hint,
+            ),
+            translation,
+        )
+
+    def _conflict_result(
+        self,
+        form_profile: UserProfile,
+        extracted_profile: UserProfile | None,
+        form_needs: list[SupportNeed] | None,
+        extracted_needs: list[SupportNeed],
+        goal: str | None,
+        conflicts: list[ValueConflict],
+        text: str | None,
+        wording_hint: str | None,
+        notes: list[str] | None = None,
+        translated: bool = False,
+    ) -> IntelligenceResult:
+        """Return clarification for disputed inputs without running engines.
+
+        Non-disputed fields still merge normally; conflicting profile
+        fields resolve to None (genuinely unknown) and disputed need
+        amounts stay out of merged needs. Analyzer transparency notes are
+        preserved through the re-merge. No eligibility, matching,
+        financial, support, or pathway logic executes on disputed data.
+        """
+        merged = merge_profiles(form_profile, extracted_profile)
+        safe_data = merged.model_dump()
+        excluded_keys: set[tuple[str, str]] = set()
+        for conflict in conflicts:
+            if conflict.field in UserProfile.model_fields:
+                safe_data[conflict.field] = None
+            elif conflict.field.startswith("needs:"):
+                excluded_keys.add(tuple(conflict.field.split(":", 2)[1:]))
+        safe_profile = UserProfile.model_validate(safe_data)
+        _, needs = merge_inputs(
+            form_profile, None, form_needs, extracted_needs, goal,
+            exclude_need_keys=excluded_keys,
+            notes=notes,
+        )
+        stages = ["profile"]
+        if translated:
+            stages.insert(0, "translation")
+        if needs is not None:
+            stages.append("needs")
+        partial = IntelligenceResult(
+            profile=safe_profile,
+            needs=needs,
+            schemes=[],
+            stages_completed=stages,
+        )
+        request = build_conflict_request(conflicts, partial)
+        if self.clarification_generator is not None:
+            request = self.clarification_generator.generate(
+                request, language_hint=wording_hint, user_text=text
+            )
+        return partial.model_copy(
+            update={
+                "clarification": request,
+                "stages_completed": [*partial.stages_completed, "clarification"],
+            }
+        )
+
+    def _execute(
+        self,
+        profile: UserProfile,
+        needs: NeedAnalysisResult | None,
+        schemes: list[Scheme],
+        document_availability: dict[str, Any] | None,
+        stages: list[str],
+        user_text: str | None = None,
+        language_hint: str | None = None,
+    ) -> IntelligenceResult:
+        """Shared downstream flow: eligibility -> result assembly."""
+        eligibility = self.eligibility_engine.evaluate_many(profile, schemes)
+        stages.append("eligibility")
+        by_id = {item.scheme_id: item for item in eligibility}
+        eligible = [s for s in schemes if by_id.get(s.id) and by_id[s.id].status == "eligible"]
+
+        ranked = self._rank(profile, schemes, eligibility, needs.needs if needs else None)
+        stages.append("matching")
+
+        near_by_id = {}
+        for scheme in schemes:
+            result = by_id.get(scheme.id)
+            if result is not None and result.status in ("not_eligible", "needs_information"):
+                # Breakdown for both states; is_near_miss stays True only for
+                # not_eligible per NearMissEngine rules. Ranking untouched.
+                near_by_id[scheme.id] = self.near_miss_engine.analyze(profile, scheme, result)
+        if near_by_id:
+            stages.append("near_miss")
+
+        support_plan = None
+        if needs is not None:
+            support_plan = self.support_planner.plan(profile, needs.needs, schemes, eligibility)
+            stages.append("support")
+
+        coverage_results = []
+        if needs is not None:
+            for need in needs.needs:
+                supports = [
+                    support
+                    for scheme in eligible
+                    for support in scheme.support_options
+                    if need.need_type in support.covers_need_types
+                ]
+                coverage_results.append(self.financial.coverage_for_need(need, supports))
+            stages.append("financial")
+
+        pathways = {}
+        for scheme in eligible:
+            if _has_pathway_data(scheme):
+                pathways[scheme.id] = self.pathway_engine.plan(scheme, document_availability)
+        if pathways:
+            stages.append("pathway")
+
+        insights: list[SchemeInsights] = []
+        for scheme in schemes:
+            result = by_id.get(scheme.id)
+            match = next((m for m in ranked if m.scheme_id == scheme.id), None)
+            near_miss = self._enrich_near_miss(
+                near_by_id.get(scheme.id),
+                profile,
+                scheme,
+                needs.needs if needs else None,
+            )
+            traces = self._scheme_traces(result, match, near_miss, pathways.get(scheme.id))
+            insights.append(
+                SchemeInsights(
+                    scheme_id=scheme.id,
+                    eligibility=result,
+                    near_miss=near_miss,
+                    pathway=pathways.get(scheme.id),
+                    traces=traces,
+                    explanation=self._explain_first(traces) if self.explanation_generator else None,
+                )
+            )
+
+        global_traces = self._global_traces(needs, support_plan, coverage_results)
+        explanations = (
+            [self.explanation_generator.generate(trace) for trace in self._all_traces(insights, global_traces)]
+            if self.explanation_generator
+            else []
+        )
+        stages.append("traces")
+        if self.explanation_generator:
+            stages.append("explanation")
+
+        partial = IntelligenceResult(
+            profile=profile,
+            needs=needs,
+            schemes=insights,
+            ranked_matches=ranked,
+            support_plan=support_plan,
+            coverage_results=coverage_results,
+            traces=global_traces,
+            explanations=explanations,
+            stages_completed=stages,
+        )
+        return self._attach_clarification(partial, user_text, language_hint)
+
+    def _attach_clarification(
+        self,
+        partial: IntelligenceResult,
+        user_text: str | None,
+        language_hint: str | None = None,
+    ) -> IntelligenceResult:
+        """Attach deterministic clarification (optionally worded) if needed.
+
+        Builds from the completed partial result, so
+        current_partial_result never contains a clarification field.
+        user_text and language_hint reach only the wording layer, with
+        provider-reported language winning over caller hints, never
+        decision logic.
+        """
+        request = build_clarification(partial)
+        if request is None:
+            return partial
+        if self.clarification_generator is not None:
+            request = self.clarification_generator.generate(
+                request, language_hint=language_hint, user_text=user_text
+            )
+        return partial.model_copy(
+            update={
+                "clarification": request,
+                "stages_completed": [*partial.stages_completed, "clarification"],
+            }
+        )
+
+    def _rank(
+        self,
+        profile: Any,
+        schemes: list[Scheme],
+        eligibility: list[Any],
+        needs: list[Any] | None = None,
+    ) -> list[MatchResult]:
+        """Deterministic ranking, or hybrid when a semantic matcher is set."""
+        if self.semantic_matcher is None or self.semantic_weight == 0:
+            ranked = self.matching_engine.rank_schemes(profile, schemes, eligibility)
+            for match in ranked:
+                match.deterministic_score = match.score
+            return ranked
+        eligible_ids = {r.scheme_id for r in eligibility if r.status == "eligible"}
+        scored: list[tuple[str, float, float, float | None, list[str]]] = []
+        for scheme in schemes:
+            if scheme.id not in eligible_ids:
+                continue
+            det_score, det_reasons = self.matching_engine.score_scheme(profile, scheme)
+            try:
+                sem_score = self.semantic_matcher.score(profile, scheme, needs).score
+            except Exception:
+                # Per-scheme degradation (mirrors _enrich_near_miss): keep
+                # deterministic evidence, leave semantic unavailable (None,
+                # never fabricated as 0.0), and continue ranking the rest.
+                scored.append(
+                    (
+                        scheme.id,
+                        det_score,
+                        det_score,
+                        None,
+                        [*det_reasons, "Semantic scoring unavailable; ranked on deterministic fit."],
+                    )
+                )
+                continue
+            hybrid = combine_scores(det_score, sem_score, self.semantic_weight)
+            scored.append(
+                (
+                    scheme.id,
+                    hybrid,
+                    det_score,
+                    sem_score,
+                    [*det_reasons, f"Semantic fit {sem_score}/100 (weight {self.semantic_weight})."],
+                )
+            )
+        scored.sort(key=lambda item: (-item[1], item[0]))
+        return [
+            MatchResult(
+                scheme_id=scheme_id,
+                score=score,
+                rank=rank,
+                reasons=reasons,
+                deterministic_score=det_score,
+                semantic_score=sem_score,
+            )
+            for rank, (scheme_id, score, det_score, sem_score, reasons) in enumerate(scored, start=1)
+        ]
+
+    def _enrich_near_miss(
+        self, result: Any | None, profile: Any, scheme: Scheme, needs: Any | None
+    ) -> Any | None:
+        """Attach semantic relevance to a finalized Near-Miss result.
+
+        Only runs when the passed result already says is_near_miss=True;
+        anything else (including None) is returned untouched, so this
+        method can never qualify, re-rank, or otherwise decide. Requires
+        a configured semantic matcher; provider failures leave
+        relevance None while keeping the computed quality. Stateless.
+        """
+        if result is None or not result.is_near_miss:
+            return result
+        if self.semantic_matcher is None:
+            return result
+        quality = assess_representation(profile, needs, scheme)
+        try:
+            relevance = self.semantic_matcher.score(profile, scheme, needs)
+        except Exception:
+            # Any provider/model failure leaves relevance unknown while
+            # keeping the computed quality; the run continues untouched.
+            return result.model_copy(update={"representation_quality": quality})
+        return result.model_copy(
+            update={"relevance": relevance, "representation_quality": quality}
+        )
+
+    def _scheme_traces(
+        self, eligibility: Any, match: Any, near_miss: Any, pathway: Any
+    ) -> list[DecisionTrace]:
+        """Build scheme-scoped traces in fixed order."""
+        traces: list[DecisionTrace] = []
+        if eligibility is not None:
+            traces.append(self.explanation_engine.explain_eligibility(eligibility))
+        if match is not None:
+            traces.append(self.explanation_engine.explain_matching(match))
+        if near_miss is not None:
+            traces.append(self.explanation_engine.explain_near_miss(near_miss))
+        if pathway is not None:
+            traces.append(self.explanation_engine.explain_pathway(pathway))
+        return traces
+
+    def _global_traces(self, needs: Any, support_plan: Any, coverage_results: list[Any]) -> list[DecisionTrace]:
+        """Build non-scheme traces in fixed order."""
+        traces: list[DecisionTrace] = []
+        if needs is not None:
+            traces.append(self.explanation_engine.explain_needs(needs))
+        if support_plan is not None:
+            traces.append(self.explanation_engine.explain_support(support_plan))
+        traces.extend(self.explanation_engine.explain_financial(item) for item in coverage_results)
+        return traces
+
+    @staticmethod
+    def _all_traces(
+        insights: list[SchemeInsights], global_traces: list[DecisionTrace]
+    ) -> list[DecisionTrace]:
+        """Every trace in stable order for optional LLM wording."""
+        ordered: list[DecisionTrace] = []
+        for insight in insights:
+            ordered.extend(insight.traces)
+        ordered.extend(global_traces)
+        return ordered
+
+    def _explain_first(self, traces: list[DecisionTrace]) -> GeneratedExplanation | None:
+        """Word the scheme's primary (eligibility) trace when present."""
+        if not traces or self.explanation_generator is None:
+            return None
+        primary = next((t for t in traces if t.subject.startswith("eligibility:")), traces[0])
+        return self.explanation_generator.generate(primary)
